@@ -1,0 +1,5 @@
+requests
+transformers
+torch
+sentence-transformers
+scikit-learn

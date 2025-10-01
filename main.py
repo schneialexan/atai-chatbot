@@ -21,13 +21,16 @@ if __name__ == "__main__":
     app = App(endpoint_url, mode=2)
     # This is an example known to be in Wikidata
     print("Mode 2 (factual):", app.post_message("Who is the director of The Bridge on the River Kwai?"))
+    # expected answer: David Lean
 
     # Mode 2: embedding-style (if no LLM or property mapping gives nothing, fallback to embeddings)
     print("Mode 2 (embedding/fallback):", app.post_message("What is the genre of Good Neighbors?"))
+    # expected answer: drama, action-drama etc.
 
     # Mode 3: recommendation
     #app = App(endpoint_url, mode=3)
     #print("Mode 3 (recommendation):", app.post_message("I like The Lion King, Pocahontas, and The Beauty and the Beast. Recommend some movies."))
+    # expected answer: 2d disney movies
 
     # Mode 4: auto-detect (example: SPARQL)
     app = App(endpoint_url, mode=4)

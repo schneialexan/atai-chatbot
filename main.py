@@ -9,7 +9,6 @@ load_dotenv()
 
 DEFAULT_HOST_URL = 'https://speakeasy.ifi.uzh.ch'
 
-
 class Agent:
     def __init__(self, username, password):
         self.username = username

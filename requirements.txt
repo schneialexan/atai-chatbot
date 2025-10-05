@@ -1,5 +1,6 @@
-requests
-transformers
-torch
-sentence-transformers
-scikit-learn
+alive_progress==3.3.0
+openapi==1.0.0
+python-dotenv==1.1.1
+rdflib==7.2.1
+Requests==2.32.5
+sseclient==0.0.27

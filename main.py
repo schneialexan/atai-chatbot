@@ -1,38 +1,54 @@
-# main.py
+import time
+import os
+
 from app.core import App
+from speakeasypy import Chatroom, EventType, Speakeasy
+from dotenv import load_dotenv
+# Load variables from .env file
+load_dotenv()
 
-if __name__ == "__main__":
-    endpoint_url = "https://query.wikidata.org/sparql"
+DEFAULT_HOST_URL = 'https://speakeasy.ifi.uzh.ch'
 
-    # Mode 1: raw SPARQL (example that exists on Wikidata: list 5 cats)
-    message_sparql = """
-    SELECT ?item ?itemLabel
-    WHERE {
-      ?item wdt:P31 wd:Q146.   # instance of: cat
-      SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-    }
-    LIMIT 5
-    """
 
-    app = App(endpoint_url, mode=1)
-    print("Mode 1 (raw SPARQL):", app.post_message(message_sparql))
+class Agent:
+    def __init__(self, username, password):
+        self.username = username
+        # Initialize the Speakeasy Python framework and login.
+        self.speakeasy = Speakeasy(host=DEFAULT_HOST_URL, username=username, password=password)
+        self.speakeasy.login()  # This framework will help you log out automatically when the program terminates.
 
-    # Mode 2: factual via LLM->SPARQL or property mapping
-    app = App(endpoint_url, mode=2)
-    # This is an example known to be in Wikidata
-    print("Mode 2 (factual):", app.post_message("Who is the director of The Bridge on the River Kwai?"))
-    # expected answer: David Lean
+        self.speakeasy.register_callback(self.on_new_message, EventType.MESSAGE)
+        self.speakeasy.register_callback(self.on_new_reaction, EventType.REACTION)
 
-    # Mode 2: embedding-style (if no LLM or property mapping gives nothing, fallback to embeddings)
-    print("Mode 2 (embedding/fallback):", app.post_message("What is the genre of Good Neighbors?"))
-    # expected answer: drama, action-drama etc.
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        dataset_path = os.path.join(base_dir, "dataset", "graph.nt")
+        self.app = App(dataset_path, mode=1)
 
-    # Mode 3: recommendation
-    #app = App(endpoint_url, mode=3)
-    #print("Mode 3 (recommendation):", app.post_message("I like The Lion King, Pocahontas, and The Beauty and the Beast. Recommend some movies."))
-    # expected answer: 2d disney movies
+    def listen(self):
+        """Start listening for events."""
+        self.speakeasy.start_listening()
 
-    # Mode 4: auto-detect (example: SPARQL)
-    app = App(endpoint_url, mode=4)
-    print("Mode 4 (auto SPARQL):", app.post_message(message_sparql))
-    print("Mode 4 (auto QA):", app.post_message("Who directed Star Wars: Episode VI - Return of the Jedi?"))
+    def on_new_message(self, message : str, room : Chatroom):
+        """Callback function to handle new messages."""
+        print(f"New message in room {room.room_id}: {message}")
+        # Implement your agent logic here, e.g., respond to the message.
+        room.post_messages(f"Received your message: '{message}'.")
+        answer = self.app.post_message(message=message)
+        room.post_messages(f"Answer from Bot: '{answer}'.")
+
+    def on_new_reaction(self, reaction : str, message_ordinal : int, room : Chatroom): 
+        """Callback function to handle new reactions."""
+        print(f"New reaction '{reaction}' on message #{message_ordinal} in room {room.room_id}")
+        # Implement your agent logic here, e.g., respond to the reaction.
+        room.post_messages(f"Thanks for your reaction: '{reaction}'")
+
+    @staticmethod
+    def get_time():
+        return time.strftime("%H:%M:%S, %d-%m-%Y", time.localtime())
+
+
+if __name__ == '__main__':
+    username = os.getenv("SPEAKEASY_USERNAME")
+    password = os.getenv("SPEAKEASY_PASSWORD")
+    demo_bot = Agent(username, password)
+    demo_bot.listen()

@@ -1,5 +1,5 @@
 alive_progress==3.3.0
-openapi==1.0.0
+openapi @ git+https://github.com/Alan-s-Speakeasy/speakeasy-openapi-python
 python-dotenv==1.1.1
 rdflib==7.2.1
 Requests==2.32.5

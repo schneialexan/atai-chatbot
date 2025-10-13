@@ -220,3 +220,6 @@ dataset/
 GEMINI.md
 .geminiignore
 *.pdf
+
+# dont push vscode folders
+.vscode/

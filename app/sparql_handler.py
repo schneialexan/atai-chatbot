@@ -1,5 +1,3 @@
-# app/sparql_handler.py
-
 import rdflib
 from rdflib.plugins.sparql.processor import SPARQLResult
 

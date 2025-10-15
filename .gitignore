@@ -216,7 +216,9 @@ __marimo__/
 .streamlit/secrets.toml
 
 # dont push the dataset (13gb+)
-dataset/
+evidence/
+dataset/*
+!dataset/*.py
 GEMINI.md
 .geminiignore
 *.pdf

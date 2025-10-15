@@ -28,8 +28,17 @@ class Agent:
         
         # Initialize the Speakeasy Python framework and login.
         self.speakeasy = Speakeasy(host=AGENT_CONFIG["speakeasy_host"], username=username, password=password)
-        self.speakeasy.login()  # This framework will help you log out automatically when the program terminates.
+        self.session_token = self.speakeasy.login()  # This framework will help you log out automatically when the program terminates.
 
+        # Prepare logging
+        self.logs_dir = os.path.join(base_dir, "evidence")
+        os.makedirs(self.logs_dir, exist_ok=True)
+
+        # Log filename: YYYY-MM-DD-sessiontoken.log
+        self.log_file = os.path.join(
+            self.logs_dir,
+            f"{time.strftime('%Y-%m-%d')}-{self.session_token}.log"
+        )
         self.speakeasy.register_callback(self.on_new_message, EventType.MESSAGE)
         self.speakeasy.register_callback(self.on_new_reaction, EventType.REACTION)
 
@@ -37,13 +46,27 @@ class Agent:
         """Start listening for events."""
         self.speakeasy.start_listening()
 
+    def log_event(self, chatroom_id: str, question: str, answer: str):
+        """Write structured logs to file."""
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        log_entry = (
+            f"[{timestamp}] - {self.session_token} - {chatroom_id} - "
+            f"question: \"{question}\" - answer: \"{answer}\"\n"
+        )
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as log:
+                log.write(log_entry)
+        except Exception as e:
+            print(f"Logging error: {e}")
+
     def on_new_message(self, message : str, room : Chatroom):
         """Callback function to handle new messages."""
         try:
-            print(f"\n{100*'-'}\nNew message in room {room.room_id}: {message}\n{100*'-'}")
+            print(f"{100*'-'}\nNew message in room {room.room_id}: {message}\n{100*'-'}")
             answer = self.app.get_answer(message=message, mode=self.mode)
             print(f"{100*'-'}\nAnswer from Bot: '{answer}'.\n{100*'-'}")
             room.post_messages(f"Answer from Bot: '{answer}'.")
+            self.log_event(room.room_id, message, answer)
         except Exception as e:
             print(f"{100*'-'}\nError: {e}\n{100*'-'}")
             room.post_messages(f"I cannot answer your question. Please try again!")
@@ -57,12 +80,16 @@ class Agent:
             
             # Send a reaction based on reaction type ChatMessageReactionType.STAR, ChatMessageReactionType.THUMBS_DOWN, ChatMessageReactionType.THUMBS_UP
             # TODO: Implement agent logic here, for now, we just send an echo of the reaction.
+            response = None
             if str(reaction) == 'ChatMessageReactionType.STAR':
                 room.post_messages(f"Thanks for your reaction: Star")
             elif str(reaction) == 'ChatMessageReactionType.THUMBS_DOWN':
                 room.post_messages(f"Thanks for your reaction: Thumbs Down")
             elif str(reaction) == 'ChatMessageReactionType.THUMBS_UP':
                 room.post_messages(f"Thanks for your reaction: Thumbs Up")
+            if response:
+                room.post_messages(response)
+                self.log_event(room.room_id, f"Reaction: {reaction}", response)
         except ValueError as ve:
             print(f"{100*'-'}\nValueError: {ve}\n{100*'-'}")
             room.post_messages(f"I cannot find the message you reacted to. Please try again!")

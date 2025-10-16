@@ -215,7 +215,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# dont push the dataset (13gb+)
+# Model files
+models/
+
+# Datasets
 evidence/
 dataset/*
 !dataset/*.py

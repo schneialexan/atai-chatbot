@@ -1,4 +1,5 @@
-import rdflib
+import pickle
+from rdflib import Graph
 from rdflib.plugins.sparql.processor import SPARQLResult
 
 class LocalSPARQL:
@@ -6,11 +7,12 @@ class LocalSPARQL:
         """
         Initialize the SPARQL handler with a given RDF dataset (.nt, .ttl, etc.)
         """
-        self.graph = rdflib.Graph()
+        self.graph = Graph()
         try:
             print(f"[SPARQL] Loading RDF graph from: {dataset_path}")
             # By default assume N-Triples (graph.nt). Can add format guessing later.
-            self.graph.parse(dataset_path, format="nt")
+            with open(dataset_path, "rb") as f:
+                self.graph: Graph = pickle.load(f)
             print(f"[SPARQL] Loaded {len(self.graph)} triples.")
         except Exception as e:
             raise RuntimeError(f"Failed to load RDF dataset from {dataset_path}: {e}")

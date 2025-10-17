@@ -13,7 +13,7 @@ class TestApp(unittest.TestCase):
     def setUp(self):
         """Set up the test environment."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.dataset_path = os.path.join(base_dir, "..", "dataset", "graph.nt") # Correct the path to be relative to the project root
+        self.dataset_path = os.path.join(base_dir, "..", "dataset", "store", "graph_cache.pkl") # Correct the path to be relative to the project root
         # Single App instance with lazy initialization
         self.app = App(self.dataset_path, preload_strategy="none")
         self.startTime = time.time()

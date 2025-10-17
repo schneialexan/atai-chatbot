@@ -1,5 +1,7 @@
 import time
 import os
+import shutil
+import atexit
 
 from app.core import App
 from speakeasypy import Chatroom, EventType, Speakeasy
@@ -29,6 +31,15 @@ class Agent:
         # Initialize the Speakeasy Python framework and login.
         self.speakeasy = Speakeasy(host=AGENT_CONFIG["speakeasy_host"], username=username, password=password)
         self.session_token = self.speakeasy.login()  # This framework will help you log out automatically when the program terminates.
+
+        # make temporary folder
+        self.temp_dir = os.path.join(base_dir, "temp")
+        os.makedirs(self.temp_dir, exist_ok=True)
+        self.session_file = os.path.join(self.temp_dir, "session_token.txt")
+        with open(self.session_file, "w") as f:
+            f.write(self.session_token)
+
+        atexit.register(lambda: shutil.rmtree(self.temp_dir, ignore_errors=True))
 
         # Prepare logging
         self.logs_dir = os.path.join(base_dir, "evidence")

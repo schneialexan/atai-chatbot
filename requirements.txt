@@ -4,6 +4,7 @@ python-dotenv==1.1.1
 rdflib==7.2.1
 Requests==2.32.5
 sseclient==0.0.27
+# it didnt work for me: conda install -c conda-forge llama-cpp-python
 llama-cpp-python==0.3.16
 sentence-transformers==5.1.1
 huggingface-hub==0.35.3

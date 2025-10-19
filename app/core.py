@@ -1,12 +1,15 @@
 # core.py
 from .sparql_handler import LocalSPARQL
-from .qa_handler import FactualQA
+from .qa_handler import QAHandler
 from .recommender import MovieRecommender
 from .multimedia_handler import MultimediaHandler
+from .llm.llm_handler import LLMHandler
+from config import LLM_CONFIG
 
 class App:
-    def __init__(self, dataset_path: str = "dataset", preload_strategy: str = "none", mode: int = None):
+    def __init__(self, dataset_path: str = "dataset", embeddings_path: str = "dataset/store/embeddings", preload_strategy: str = "none", mode: int = None):
         self.dataset_path = dataset_path
+        self.embeddings_path = embeddings_path
         self.preload_strategy = preload_strategy
         self.mode = mode
         # Lazy initialization - models will be created only when needed
@@ -14,6 +17,7 @@ class App:
         self._qa_model = None
         self._recommender = None
         self._multimedia = None
+        self._llm_handlers = {}
         
         # Apply preload strategy
         if self.preload_strategy == "all":
@@ -57,10 +61,35 @@ class App:
             self._sparql_handler = LocalSPARQL(dataset_path=self.dataset_path)
         return self._sparql_handler
 
+    def _get_llm_handler(self, handler_name: str):
+        """Lazy initialization of a named LLM handler."""
+        if handler_name not in self._llm_handlers:
+            print(f"Initializing LLM Handler for {handler_name}...")
+            config = LLM_CONFIG.get(handler_name)
+            if not config:
+                raise ValueError(f"No configuration found for LLM handler: {handler_name}")
+            
+            self._llm_handlers[handler_name] = LLMHandler(**config)
+        return self._llm_handlers[handler_name]
+
     def _get_qa_model(self):
         """Lazy initialization of QA model"""
         if self._qa_model is None:
-            self._qa_model = FactualQA(dataset_path=self.dataset_path)
+            # Try to get embedding handler, but don't fail if not available
+            embedding_handler = None
+            try:
+                embedding_handler = self._get_llm_handler("embedding")
+            except:
+                print("Warning: Embedding handler not available, embedding fallback disabled")
+            
+            self._qa_model = QAHandler(
+                llm_handler=self._get_llm_handler("factual_qa"),
+                sparql_handler=self._get_sparql_handler(),
+                ner_handler=self._get_llm_handler("ner"),
+                embedding_handler=embedding_handler,
+                dataset_path=self.dataset_path,
+                embeddings_path=self.embeddings_path
+            )
         return self._qa_model
 
     def _get_recommender(self):

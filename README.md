@@ -36,9 +36,18 @@ During the evaluation events, the chatbot will be tested on the Speakeasy platfo
     ```bash
     pip install -r requirements.txt
     ```
-    For GPU acceleration with NVIDIA GPUs, a special installation of `llama-cpp-python` is required. Make sure you have the CUDA Toolkit installed on your system, then run the following command to reinstall it with CUDA support:
+    
+    **For GPU acceleration with NVIDIA GPUs:**
+    A special installation of `llama-cpp-python` is required. Make sure you have the CUDA Toolkit installed on your system, then run the following command to reinstall it with CUDA support:
     ```bash
     CMAKE_ARGS=\"-DLLAMA_CUBLAS=on\" FORCE_CMAKE=1 pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir
+    ```
+    
+    **For Transformer models:**
+    The project uses Hugging Face transformers for NER and embedding models. These are automatically installed with the requirements, but you may need additional dependencies for specific models:
+    ```bash
+    pip install sentence-transformers  # For embedding models
+    pip install transformers  # For NER models
     ```
 
 3.  **Set up environment variables:**
@@ -194,8 +203,8 @@ The project includes a modular framework for running open-source language models
 ### Features
 
 -   **Run Models Locally:** No external APIs or servers are needed.
--   **Unified Interface:** The `LLMHandler` class provides a consistent way to interact with different model types.
--   **Multiple Model Types:** Natively supports standard LLMs, multimodal models (text + image), and sentence-embedding models.
+-   **Modular Architecture:** Factory pattern with specialized handlers for different model types (GGUF and Transformer models).
+-   **Multiple Model Types:** Natively supports standard LLMs, multimodal models (text + image), NER models, and sentence-embedding models.
 -   **Automatic Downloading:** Models are automatically downloaded from Hugging Face on first use and cached locally in the `models/` directory.
 -   **Efficient Model Loading:** Models load once during initialization and stay loaded for optimal performance.
 -   **Flexible Loading Options:** Choose between eager loading (default) or lazy loading for different use cases.
@@ -207,10 +216,11 @@ The project includes a modular framework for running open-source language models
 
 ### Core Components
 
--   `llm_handler.py`: Contains the `LLMHandler` class. Each instance of this class manages a single model, providing methods for text generation, embedding, multimodal inference, and JSON extraction.
+-   `llm_handler.py`: Factory function that creates appropriate handlers based on backend type (GGUF or Transformer).
+-   `llama_cpp_handler.py`: Specialized handler for GGUF models using llama-cpp-python, supporting both text and multimodal models.
+-   `transformer_handler.py`: Specialized handler for Hugging Face transformer models, supporting NER and embedding models.
 -   `json_parser.py`: A robust JSON parser that can extract structured data from LLM responses, handling mixed text, code blocks, and malformed JSON gracefully.
 -   `prompt_manager.py`: Contains the `PromptManager` class, which loads templates from `prompts.json` and formats them with dynamic data.
--   `sample_usage.py`: A runnable script that provides clear, practical examples of how to instantiate and use the `LLMHandler` for various tasks.
 
 ### Basic Usage Example
 
@@ -221,9 +231,10 @@ You can instantiate multiple handlers for different models and use them as neede
 ```python
 from app.llm.llm_handler import LLMHandler
 
-# 1. Create a handler for a text-based LLM
+# 1. Create a handler for a text-based LLM (GGUF model)
 # Model loads automatically during initialization (efficient!)
 llm = LLMHandler(
+    backend="gguf",
     model_repo="ibm-granite/granite-4.0-h-micro-GGUF",
     model_file="granite-4.0-h-micro-Q2_K.gguf",
     n_gpu_layers=0,  # CPU-only for this example
@@ -231,20 +242,36 @@ llm = LLMHandler(
     auto_load=True  # Default: loads model during initialization
 )
 
-# 2. Create a handler for an embedding model
-embedder = LLMHandler(model_repo="all-MiniLM-L6-v2", model_type="embedding")
+# 2. Create a handler for an embedding model (Transformer model)
+embedder = LLMHandler(
+    backend="transformer",
+    model_repo="all-MiniLM-L6-v2", 
+    model_type="embedding"
+)
 
-# 3. Generate a text response (no loading delay!)
+# 3. Create a handler for NER (Named Entity Recognition)
+ner_handler = LLMHandler(
+    backend="transformer",
+    model_repo="dslim/distilbert-NER",
+    model_type="ner"
+)
+
+# 4. Generate a text response (no loading delay!)
 response = llm.generate_response("What is the capital of France?")
 print(response['content'])
 
-# 4. Generate sentence embeddings (no loading delay!)
+# 5. Generate sentence embeddings (no loading delay!)
 embeddings = embedder.generate_embedding(["Hello world", "This is a test"])
-print(embeddings.shape)
+print(len(embeddings))
 
-# 5. Clean up resources when done
+# 6. Extract entities from text
+ner_result = ner_handler.generate_ner_response("I live in New York City")
+print(ner_result['content'])
+
+# 7. Clean up resources when done
 llm.unload_model()
 embedder.unload_model()
+ner_handler.unload_model()
 ```
 
 #### Parallel Inference
@@ -257,11 +284,16 @@ from app.llm.llm_handler import LLMHandler
 
 # 1. Create handlers for two different models
 intent_classifier = LLMHandler(
+    backend="gguf",
     model_repo="TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
     model_file="tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 )
 
-embedding_model = LLMHandler(model_repo="all-MiniLM-L6-v2", model_type="embedding")
+embedding_model = LLMHandler(
+    backend="transformer",
+    model_repo="all-MiniLM-L6-v2", 
+    model_type="embedding"
+)
 
 # 2. Define functions for each thread to execute
 def run_classifier():
@@ -288,11 +320,6 @@ embedder_thread.join()
 print("\nBoth models ran in parallel.")
 ```
 
-To see more detailed examples, run the sample script:
-```bash
-python app/llm/sample_usage.py
-```
-
 ### Model Lifecycle Management
 
 The LLM framework provides efficient model lifecycle management with multiple loading strategies and automatic resource cleanup.
@@ -306,6 +333,7 @@ from app.llm.llm_handler import LLMHandler
 
 # Model loads during initialization (default behavior)
 llm = LLMHandler(
+    backend="gguf",
     model_repo="ibm-granite/granite-4.0-h-micro-GGUF",
     model_file="granite-4.0-h-micro-Q2_K.gguf",
     n_ctx=4096,
@@ -323,6 +351,7 @@ For scenarios where you want to control when models are loaded:
 ```python
 # Create handler without loading the model
 llm = LLMHandler(
+    backend="gguf",
     model_repo="ibm-granite/granite-4.0-h-micro-GGUF",
     model_file="granite-4.0-h-micro-Q2_K.gguf",
     auto_load=False  # Don't load during initialization
@@ -346,6 +375,7 @@ Automatic resource cleanup with context managers:
 ```python
 # Model automatically unloaded when exiting context
 with LLMHandler(
+    backend="gguf",
     model_repo="ibm-granite/granite-4.0-h-micro-GGUF",
     model_file="granite-4.0-h-micro-Q2_K.gguf"
 ) as llm:
@@ -357,7 +387,7 @@ with LLMHandler(
 #### Manual Resource Management
 
 ```python
-llm = LLMHandler(model_repo="...", model_file="...")
+llm = LLMHandler(backend="gguf", model_repo="...", model_file="...")
 
 # Use the model
 response = llm.generate_response("Hello!")
@@ -395,6 +425,7 @@ from app.llm.llm_handler import LLMHandler
 
 # Create an LLM handler
 llm = LLMHandler(
+    backend="gguf",
     model_repo="TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
     model_file="tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 )
@@ -451,6 +482,7 @@ from app.llm.llm_handler import LLMHandler
 
 # Create an LLM handler for a reasoning model
 llm = LLMHandler(
+    backend="gguf",
     model_repo="microsoft/Phi-3.5-mini-instruct-GGUF",
     model_file="Phi-3.5-mini-instruct-q4.gguf"
 )
@@ -490,6 +522,117 @@ clean_response = llm.generate_response("Explain quantum computing", remove_think
 print("Clean response:", clean_response['content'])
 ```
 
+## QA Handler
+
+The project includes a sophisticated Question Answering (QA) handler that can process natural language questions and convert them into SPARQL queries to retrieve answers from the knowledge graph.
+
+### Features
+
+-   **Entity Extraction:** Automatically identifies entities in user questions using multiple strategies (cached entities, explicit quotes, NER fallback).
+-   **Property Identification:** Maps user questions to knowledge graph properties using fuzzy matching and synonym mapping.
+-   **SPARQL Query Generation:** Constructs executable SPARQL queries based on extracted entities and properties.
+-   **Natural Language Formatting:** Uses LLM to format raw query results into human-readable answers.
+-   **Caching System:** Caches entities and properties for faster subsequent queries.
+-   **Embedding Support:** Optional embedding-based entity matching for improved accuracy.
+-   **Wikidata Integration:** Fallback to Wikidata API for entity labels not found in the local knowledge graph.
+
+### QA Handler Components
+
+-   **Entity Extraction Pipeline:**
+    1. **Cached Entity Matching:** Fast lookup using pre-loaded entity cache
+    2. **Explicit Quote Extraction:** Handles entities enclosed in single quotes
+    3. **NER Fallback:** Uses transformer-based NER model for complex cases
+    4. **Fuzzy Matching:** Handles typos and variations in entity names
+
+-   **Property Identification:**
+    1. **Synonym Mapping:** Maps user terms to canonical property names
+    2. **Fuzzy String Matching:** Handles variations in property names
+    3. **Context-Aware Processing:** Considers question context for better matching
+
+-   **SPARQL Query Construction:**
+    1. **Template-Based Generation:** Uses predefined SPARQL templates
+    2. **Entity URI Resolution:** Maps entity names to knowledge graph URIs
+    3. **Property URI Mapping:** Converts property names to SPARQL predicates
+
+### Usage Example
+
+```python
+from app.qa_handler import QAHandler
+from app.llm.llm_handler import LLMHandler
+from app.sparql_handler import LocalSPARQL
+
+# Initialize required handlers
+llm_handler = LLMHandler(backend="gguf", model_repo="Qwen/Qwen2.5-0.5B-Instruct-GGUF", model_file="qwen2.5-0.5b-instruct-q4_k_m.gguf")
+ner_handler = LLMHandler(backend="transformer", model_repo="dslim/distilbert-NER", model_type="ner")
+sparql_handler = LocalSPARQL(dataset_path="dataset/store/graph_cache.pkl")
+
+# Create QA handler
+qa_handler = QAHandler(
+    llm_handler=llm_handler,
+    sparql_handler=sparql_handler,
+    ner_handler=ner_handler,
+    dataset_path="dataset",
+    embeddings_path="dataset/store/embeddings"
+)
+
+# Process a question
+question = "Who directed the movie The Godfather?"
+answer = qa_handler.answer(question)
+print(answer)  # "Based on my knowledge graph: Francis Ford Coppola"
+```
+
+### Configuration Files
+
+The QA handler uses several configuration files:
+
+-   **`cached_entities.json`:** Pre-computed entity cache for fast entity lookup
+-   **`cached_properties.json`:** Pre-computed property cache for fast property lookup  
+-   **`property_synonyms.json`:** Maps user terms to canonical property names
+-   **`prompts.json`:** Contains templates for natural language formatting
+
+### Advanced Features
+
+#### Entity Extraction Strategies
+
+```python
+# The QA handler uses multiple strategies for entity extraction:
+
+# 1. Cached entity matching (fastest)
+entities = qa_handler._extract_entities("Tell me about The Godfather")
+
+# 2. Explicit quote extraction
+entities = qa_handler._extract_entities("Tell me about 'The Godfather' movie")
+
+# 3. NER fallback for complex cases
+entities = qa_handler._extract_entities("I want to know about Francis Ford Coppola")
+```
+
+#### Property Synonym Mapping
+
+```python
+# The QA handler supports synonym mapping for better property identification:
+
+# User question: "What is the cast of The Godfather?"
+# Mapped to property: "starring" (via synonym mapping)
+
+# User question: "Who are the actors in The Godfather?"  
+# Mapped to property: "starring" (via synonym mapping)
+```
+
+#### Embedding-Based Entity Matching
+
+```python
+# Optional embedding-based entity matching for improved accuracy
+qa_handler = QAHandler(
+    llm_handler=llm_handler,
+    sparql_handler=sparql_handler,
+    ner_handler=ner_handler,
+    embedding_handler=embedding_handler,  # Optional embedding handler
+    dataset_path="dataset",
+    embeddings_path="dataset/store/embeddings"
+)
+```
+
 ## Testing
 
 ### Running All Tests
@@ -524,15 +667,19 @@ python -m unittest testing.test_app.TestApp.test_recommendation_questions
 -   `app/`: Contains the core logic of the chatbot.
     -   `core.py`: The main application class with lazy initialization for different modes.
     -   `sparql_handler.py`: Handles SPARQL queries (loaded on-demand).
-    -   `qa_handler.py`: Handles factual questions (loaded on-demand).
+    -   `qa_handler.py`: Handles factual questions with entity extraction and SPARQL query generation.
     -   `recommender.py`: Handles movie recommendations (loaded on-demand).
     -   `multimedia_handler.py`: Handles multimedia requests (loaded on-demand).
     -   `llm/`: Contains the local language model framework.
-        -   `llm_handler.py`: The core handler class for managing individual models with JSON extraction capabilities.
+        -   `llm_handler.py`: Factory function for creating appropriate model handlers.
+        -   `llama_cpp_handler.py`: Specialized handler for GGUF models using llama-cpp-python.
+        -   `transformer_handler.py`: Specialized handler for Hugging Face transformer models.
         -   `json_parser.py`: A robust JSON parser for extracting structured data from LLM responses.
         -   `prompt_manager.py`: Manages loading and formatting prompts.
         -   `prompts.json`: A file containing all prompt templates.
-        -   `sample_usage.py`: A script demonstrating how to use the LLM framework.
+    -   `cached_entities.json`: Pre-computed entity cache for fast entity lookup.
+    -   `cached_properties.json`: Pre-computed property cache for fast property lookup.
+    -   `property_synonyms.json`: Maps user terms to canonical property names.
 -   `dataset/`: Contains the dataset for the chatbot.
 -   `models/`: Local cache for downloaded GGUF models. This directory is created automatically and is ignored by Git.
 -   `speakeasypy/`: Contains the Speakeasy framework for chatbot communication.
@@ -549,11 +696,36 @@ The chatbot uses a centralized configuration system through `config.py`. This ma
 ### Available Configuration Options
 
 ```python
+# Agent Configuration
 AGENT_CONFIG = {
-    "mode": 1,  # Default mode (1-5)
-    "dataset_path": "dataset/graph.nt",  # Path to RDF dataset
-    "speakeasy_host": "https://speakeasy.ifi.uzh.ch",  # Speakeasy server
+    "mode": 2,  # Default mode: 1=SPARQL, 2=QA, 3=Recommendation, 4=Multimedia, 5=Auto
+    "dataset_path": "dataset/store/graph_cache.pkl",  # Path to the RDF dataset
+    "embeddings_path": "dataset/store/embeddings",  # Path to the embeddings
+    "speakeasy_host": "https://speakeasy.ifi.uzh.ch",  # Speakeasy server URL
     "preload_strategy": "mode_specific",  # Options: "all", "mode_specific", "none"
+}
+
+# LLM Configuration
+LLM_CONFIG = {
+    "factual_qa": {
+        "backend": "gguf",
+        "model_type": "llm",
+        "model_repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+        "model_file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "auto_load": True
+    },
+    "ner": {
+        "backend": "transformer",
+        "model_type": "ner",
+        "model_repo": "dslim/distilbert-NER",
+        "auto_load": True
+    },
+    "embedding": {
+        "backend": "transformer",
+        "model_type": "embedding",
+        "model_repo": "all-MiniLM-L6-v2",
+        "auto_load": True
+    }
 }
 ```
 

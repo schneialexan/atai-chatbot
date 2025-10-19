@@ -14,8 +14,9 @@ class TestApp(unittest.TestCase):
         """Set up the test environment."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.dataset_path = os.path.join(base_dir, "..", "dataset", "store", "graph_cache.pkl") # Correct the path to be relative to the project root
+        self.embeddings_path = os.path.join(base_dir, "..", "dataset", "store", "embeddings")
         # Single App instance with lazy initialization
-        self.app = App(self.dataset_path, preload_strategy="none")
+        self.app = App(self.dataset_path, self.embeddings_path, preload_strategy="none")
         self.startTime = time.time()
 
     def tearDown(self):
@@ -150,20 +151,42 @@ class TestApp(unittest.TestCase):
 
     def test_factual_questions(self):
         """Test factual questions from the final evaluation."""
-        question = "Who is the director of Good Will Hunting?"
-        expected = "Gus Van Sant"
-        result = self.app.get_answer(question, mode=2)
-        self.assertIn(expected, str(result))
+        test_cases = [
+            {
+                "question": "Who is the director of Good Will Hunting?",
+                "expected": "Gus Van Sant"
+            },
+            {
+                "question": "Who directed The Bridge on the River Kwai?",
+                "expected": "David Lean"
+            },
+            {
+                "question": "Who is the director of Star Wars: Episode VI - Return of the Jedi?",
+                "expected": "Richard Marquand"
+            },
+            {
+                "question": "When was the movie 'Parasite' released?",
+                "expected": "2019"
+            },
+            {
+                "question": "Who are the main actors in 'The Bridge on the River Kwai'?",
+                "expected": ["William Holden", "Alec Guinness"]
+            }
+        ]
 
-        question = "Who directed The Bridge on the River Kwai?"
-        expected = "David Lean"
-        result = self.app.get_answer(question, mode=2)
-        self.assertIn(expected, str(result))
-
-        question = "Who is the director of Star Wars: Episode VI - Return of the Jedi?"
-        expected = "Richard Marquand"
-        result = self.app.get_answer(question, mode=2)
-        self.assertIn(expected, str(result))
+        for case in test_cases:
+            with self.subTest(question=case["question"]):
+                print(100*"-")
+                print(f"💬 Q: {case['question']}")
+                result = self.app.get_answer(case["question"], mode=2)
+                # add icon to print
+                print(f"🤖 A: {result}")
+                print(100*"-")
+                if isinstance(case["expected"], list):
+                    for expected_item in case["expected"]:
+                        self.assertIn(expected_item, str(result))
+                else:
+                    self.assertIn(case["expected"], str(result))
 
     def test_embedding_questions(self):
         """Test embedding questions from the final evaluation."""

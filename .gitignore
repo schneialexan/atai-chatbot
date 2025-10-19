@@ -228,3 +228,6 @@ GEMINI.md
 
 # dont push vscode folders
 .vscode/
+cached_properties.json
+cached_entities.json
+temp/

@@ -21,12 +21,13 @@ class Agent:
         # Use dataset path from config
         base_dir = os.path.dirname(os.path.abspath(__file__))
         dataset_path = os.path.join(base_dir, AGENT_CONFIG["dataset_path"])
+        embeddings_path = os.path.join(base_dir, AGENT_CONFIG["embeddings_path"])
         
         # Determine preload strategy
         preload_strategy = preload_strategy if preload_strategy is not None else AGENT_CONFIG["preload_strategy"]
         
         # Initialize App with preloading configuration
-        self.app = App(dataset_path, preload_strategy=preload_strategy, mode=self.mode)
+        self.app = App(dataset_path, embeddings_path, preload_strategy=preload_strategy, mode=self.mode)
         
         # Initialize the Speakeasy Python framework and login.
         self.speakeasy = Speakeasy(host=AGENT_CONFIG["speakeasy_host"], username=username, password=password)
@@ -91,16 +92,12 @@ class Agent:
             
             # Send a reaction based on reaction type ChatMessageReactionType.STAR, ChatMessageReactionType.THUMBS_DOWN, ChatMessageReactionType.THUMBS_UP
             # TODO: Implement agent logic here, for now, we just send an echo of the reaction.
-            response = None
             if str(reaction) == 'ChatMessageReactionType.STAR':
                 room.post_messages(f"Thanks for your reaction: Star")
             elif str(reaction) == 'ChatMessageReactionType.THUMBS_DOWN':
                 room.post_messages(f"Thanks for your reaction: Thumbs Down")
             elif str(reaction) == 'ChatMessageReactionType.THUMBS_UP':
                 room.post_messages(f"Thanks for your reaction: Thumbs Up")
-            if response:
-                room.post_messages(response)
-                self.log_event(room.room_id, f"Reaction: {reaction}", response)
         except ValueError as ve:
             print(f"{100*'-'}\nValueError: {ve}\n{100*'-'}")
             room.post_messages(f"I cannot find the message you reacted to. Please try again!")

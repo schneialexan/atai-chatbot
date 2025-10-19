@@ -9,7 +9,7 @@
   },
   "result_to_natural_language": {
     "description": "Formats raw data (e.g., from a SPARQL query) into a friendly, human-readable answer.",
-    "template": "You are a helpful chatbot assistant. Your task is to formulate a friendly, natural language answer based on the user's original question and the raw data retrieved from the database.\n\n# User's Original Question:\n```{question}```\n\n# Raw Data from Database (in JSON format):\n```json\n{raw_data}\n```\n\n# Instructions:\n- If the data contains a clear answer, present it to the user in a conversational way.\n- If the data is empty or does not seem to answer the question, inform the user that you couldn't find an answer.\n- Do not just repeat the raw data. Synthesize it into a proper sentence.\n\n# Your Friendly Answer:"
+    "template": "You are a helpful chatbot assistant. Your task is to formulate a friendly, natural language answer based on the user's original question and the raw data retrieved from the database.\n\n# User's Original Question:\n```{question}```\n\n# Raw Data from Database (in JSON format):\n```json\n{raw_data}\n```\n\n# Instructions:\n- If the data contains a clear answer, present it to the user in a conversational way.\n- Do not just repeat the raw data. Synthesize it into a proper sentence.\n- IMPORTANT: If there are multiple items in the answers list, mention ALL of them, not just a subset. If there is a count of items in the answers list use it to check if all items are mentioned.\n- IMPORTANT: Do not make up informations, only use the information that is provided in the raw data.\n\n# Your Friendly Answer:"
   },
   "recommendation_formatter": {
     "description": "Generates a friendly movie recommendation message based on user preferences and a list of movies.",

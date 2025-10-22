@@ -4,6 +4,7 @@ from .qa_handler import QAHandler
 from .recommender import MovieRecommender
 from .multimedia_handler import MultimediaHandler
 from .llm.llm_handler import LLMHandler
+from .llm.prompt_manager import PromptManager
 from config import LLM_CONFIG
 
 class App:
@@ -12,12 +13,16 @@ class App:
         self.embeddings_path = embeddings_path
         self.preload_strategy = preload_strategy
         self.mode = mode
+        self.prompt_manager = PromptManager()
         # Lazy initialization - models will be created only when needed
         self._sparql_handler = None
         self._qa_model = None
         self._recommender = None
         self._multimedia = None
         self._llm_handlers = {}
+
+        # Preload intent classifier
+        self.intent_classifier = self._get_llm_handler("intent_classifier")
         
         # Apply preload strategy
         if self.preload_strategy == "all":
@@ -125,11 +130,42 @@ class App:
 
     def _handle_all(self, message: str):
         """Auto-detect the appropriate mode based on message content"""
-        low = message.strip().lower()
-        if low.startswith("select") or low.startswith("prefix") or "where {" in low:
+        # Use LLM to classify intent
+        response = self.intent_classifier.generate_json_response(self.prompt_manager.get_prompt("intent_classifier", user_message=message))
+        
+        intent = "unknown"
+        if response['success'] and response['json']:
+            intent = response['json'].get("intent", "unknown")
+
+        print(f"Detected intent: {intent}")
+
+        # Route to the appropriate handler
+        if intent == "sparql_query":
+            print("SPARQL query detected")
             return self._get_sparql_handler().query(message)
-        if "recommend" in low or "i like" in low:
+        elif intent == "recommendation_question":
+            print("Recommendation question detected")
             return self._get_recommender().recommend(message)
-        if "picture" in low or "image" in low or "look like" in low:
+        elif intent == "multimedia_question":
+            print("Multimedia question detected")
             return self._get_multimedia().get_image(message)
-        return self._get_qa_model().answer(message)
+        elif intent == "factual_question":
+            print("Factual question detected")
+            return self._get_qa_model().answer(message)
+        elif intent == "greeting":
+            print("Greeting detected")
+            return "Hello I am GrayBarkingDog! How can I help you today?"
+        else: # Fallback for 'unknown'
+            print(f"Unknown intent detected, falling back to keyword matching...")
+            low = message.strip().lower()
+            if low.startswith("select") or low.startswith("prefix") or "where {" in low:
+                print("SPARQL query detected by fallback")
+                return self._get_sparql_handler().query(message)
+            if "recommend" in low or "i like" in low:
+                print("Recommendation question detected by fallback")
+                return self._get_recommender().recommend(message)
+            if "picture" in low or "image" in low or "look like" in low:
+                print("Multimedia question detected by fallback")
+                return self._get_multimedia().get_image(message)
+            print("Factual question detected by fallback")
+            return self._get_qa_model().answer(message)

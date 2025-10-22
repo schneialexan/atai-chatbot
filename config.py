@@ -3,7 +3,7 @@
 
 # Agent Configuration
 AGENT_CONFIG = {
-    "mode": 2,  # Default mode: 1=SPARQL, 2=QA, 3=Recommendation, 4=Multimedia, 5=Auto
+    "mode": 5,  # Default mode: 1=SPARQL, 2=QA, 3=Recommendation, 4=Multimedia, 5=Auto
     "dataset_path": "dataset/store/graph_cache.pkl",  # Path to the RDF dataset
     "embeddings_path": "dataset/store/embeddings",  # Path to the embeddings
     "speakeasy_host": "https://speakeasy.ifi.uzh.ch",  # Speakeasy server URL
@@ -15,8 +15,10 @@ LLM_CONFIG = {
     "factual_qa": {
         "backend": "gguf",
         "model_type": "llm",
-        "model_repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-        "model_file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "n_gpu_layers": 0,
+        "n_ctx": 4096,
         "auto_load": True
     },
     "ner": {
@@ -29,6 +31,15 @@ LLM_CONFIG = {
         "backend": "transformer",
         "model_type": "embedding",
         "model_repo": "all-MiniLM-L6-v2",
+        "auto_load": True
+    },
+    "intent_classifier": {
+        "backend": "gguf",
+        "model_type": "llm",
+        "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "n_gpu_layers": 0,
+        "n_ctx": 2048,
         "auto_load": True
     }
 }

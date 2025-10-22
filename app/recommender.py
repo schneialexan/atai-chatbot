@@ -11,5 +11,8 @@ class MovieRecommender:
     def __init__(self, dataset_path: str = "dataset"):
         self.dataset_path = dataset_path
 
-    def recommend():
-        pass
+    def recommend(self, message: str):
+        """
+        Returns a recommendation for a movie based on the user's query.
+        """
+        return "I currently cannot recommend movies to you! I will be able to do this in the future!"

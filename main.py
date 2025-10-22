@@ -77,7 +77,7 @@ class Agent:
             print(f"{100*'-'}\nNew message in room {room.room_id}: {message}\n{100*'-'}")
             answer = self.app.get_answer(message=message, mode=self.mode)
             print(f"{100*'-'}\nAnswer from Bot: '{answer}'.\n{100*'-'}")
-            room.post_messages(f"Answer from Bot: '{answer}'.")
+            room.post_messages(f"{answer}")
             self.log_event(room.room_id, message, answer)
         except Exception as e:
             print(f"{100*'-'}\nError: {e}\n{100*'-'}")

@@ -16,7 +16,4 @@ class MultimediaHandler:
         """
         Returns an image link or path based on query (e.g. 'Show me a picture of Halle Berry').
         """
-        for name, url in self.image_index.items():
-            if name.lower() in query.lower():
-                return url
-        return "Sorry, I could not find an image for that entity."
+        return "I currently cannot show you images! I will be able to do this in the future!"

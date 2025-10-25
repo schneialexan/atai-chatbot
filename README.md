@@ -13,6 +13,30 @@ The chatbot supports four main modes of operation:
 
 The system uses a modular architecture with local LLM models, embedding-based entity matching, and intelligent fallback mechanisms for robust question answering.
 
+## Project Structure
+
+```
+atai-chatbot/
+├── app/
+│   ├── core.py                    # Main application class
+│   ├── qa_handler.py              # Question answering with entity extraction
+│   ├── kg_handler.py              # Knowledge graph and SPARQL handling
+│   ├── recommender.py             # Movie recommendation system
+│   ├── multimedia_handler.py      # Image and multimedia retrieval
+│   └── llm/                       # Local LLM framework
+│       ├── llama_cpp_handler.py   # GGUF model support
+│       ├── transformer_handler.py # Hugging Face models
+│       ├── json_parser.py         # JSON extraction
+│       └── prompt_manager.py      # Prompt management
+│
+├── dataset/                       # Knowledge graph and embeddings
+├── models/                        # Local model cache
+├── testing/                       # Test suite
+├── config.py                      # Configuration settings
+└── main.py                        # Application entry point
+```
+
+
 ## Installation
 
 1. **Clone the repository:**
@@ -95,24 +119,158 @@ python -m unittest testing.test_app.TestApp.test_sparql_queries
 python -m unittest testing.test_app.TestApp.test_factual_questions
 ```
 
-## Project Structure
+## Architecture Diagrams
 
-```
-app/
-├── core.py              # Main application class
-├── qa_handler.py        # Question answering with entity extraction
-├── kg_handler.py        # Knowledge graph and SPARQL handling
-├── recommender.py       # Movie recommendation system
-├── multimedia_handler.py # Image and multimedia retrieval
-└── llm/                 # Local LLM framework
-    ├── llama_cpp_handler.py    # GGUF model support
-    ├── transformer_handler.py  # Hugging Face models
-    ├── json_parser.py          # JSON extraction
-    └── prompt_manager.py       # Prompt management
+### High-Level Chat Loop Architecture (main.py)
 
-dataset/                 # Knowledge graph and embeddings
-models/                  # Local model cache
-testing/                 # Test suite
-config.py               # Configuration settings
-main.py                 # Application entry point
+```mermaid
+graph TD
+    A[User Message] --> B[Speakeasy Framework]
+    B --> C[Agent.on_new_message]
+    C --> D[App.get_answer]
+    D --> E[Mode Detection]
+    E --> F[Handler Selection]
+    F --> G[Response Generation]
+    G --> H[Speakeasy.post_messages]
+    H --> I[User Response]
+    
+    J[User Reaction] --> K[Speakeasy Framework]
+    K --> L[Agent.on_new_reaction]
+    L --> M[Reaction Processing]
+    M --> N[Reaction Response]
+    N --> O[Speakeasy.post_messages]
+    O --> P[User Response]
+    
+    Q[Session Management] --> C
+    R[Event Logging] --> C
+    S[Session Management] --> L
+    T[Event Logging] --> L
+    
+    style A fill:#e1f5fe,color:#000000
+    style J fill:#e1f5fe,color:#000000
+    style C fill:#e8f5e8,color:#000000
+    style D fill:#e8f5e8,color:#000000
+    style E fill:#fff3e0,color:#000000
+    style F fill:#fce4ec,color:#000000
+    style L fill:#e8f5e8,color:#000000
+    style M fill:#fff3e0,color:#000000
 ```
+
+### High-Level App Core Architecture (core.py)
+
+```mermaid
+graph TD
+    A[App Initialization] --> B[Load Configuration]
+    B --> C[Initialize Prompt Manager]
+    C --> D[Setup Lazy Loading]
+    D --> E[Preload Strategy]
+    E --> F[Intent Classifier]
+    
+    G[User Question] --> H[App.get_answer]
+    H --> I[Mode Check]
+    I --> J[Mode 1: SPARQL]
+    I --> K[Mode 2: QA]
+    I --> L[Mode 3: Recommendation]
+    I --> M[Mode 4: Multimedia]
+    I --> N[Mode 5: Auto]
+    
+    N --> O[Intent Classification]
+    O --> P[Intent Detection]
+    P --> Q[Route to Handler]
+    Q --> R[Handler Response]
+    
+    J --> S[KG Handler]
+    K --> T[QA Handler]
+    L --> U[Recommender]
+    M --> V[Multimedia Handler]
+    
+    S --> W[Response]
+    T --> W
+    U --> W
+    V --> W
+    R --> W
+    
+    style A fill:#e1f5fe,color:#000000
+    style G fill:#e1f5fe,color:#000000
+    style H fill:#e8f5e8,color:#000000
+    style I fill:#fff3e0,color:#000000
+    style N fill:#fce4ec,color:#000000
+    style O fill:#f3e5f5,color:#000000
+```
+
+### High-Level Knowledge Graph Handler (kg_handler.py)
+
+```mermaid
+graph TD
+    A[KG Handler Initialization] --> B[Load RDF Dataset]
+    B --> C[Parse Pickle File]
+    C --> D[Initialize RDF Graph]
+    
+    E[SPARQL Query] --> F[sparql_query]
+    F --> G[Query Validation]
+    G --> H[Execute Query]
+    H --> I[Parse Results]
+    I --> J[Format Response]
+    
+    K[Entity Lookup] --> L[get_label_for_uri]
+    L --> M[Local Graph Search]
+    M --> N[Wikidata Fallback]
+    N --> O[Label Response]
+    
+    P[Property Discovery] --> Q[get_entity_property_labels]
+    Q --> R[Query Entity Properties]
+    R --> S[Return Property List]
+    
+    T[Metadata Extraction] --> U[get_entity_metadata_local]
+    U --> V[Extract Types & Descriptions]
+    V --> W[Return Metadata]
+    
+    style A fill:#e1f5fe,color:#000000
+    style E fill:#e1f5fe,color:#000000
+    style K fill:#e1f5fe,color:#000000
+    style P fill:#e1f5fe,color:#000000
+    style T fill:#e1f5fe,color:#000000
+    style F fill:#e8f5e8,color:#000000
+    style L fill:#e8f5e8,color:#000000
+    style Q fill:#e8f5e8,color:#000000
+    style U fill:#e8f5e8,color:#000000
+```
+
+### QA Handler Pipeline (qa_handler.py)
+
+```mermaid
+graph LR
+    A[User Question] --> B[NER Extraction]
+    A --> C[Difficult Entities]
+    
+    B --> D[Collect Potential Entities]
+    C --> D
+    
+    D --> E[Collect Potential Entity-Based Properties]
+    
+    E --> F[Candidates Found?]
+    
+    F -->|No| G[Brute Force Fallback]
+    F -->|Yes| H[Select Best Entity]
+    
+    G --> I[Entities Found?]
+    I -->|No| J[No Entities Error]
+    I -->|Yes| H
+    
+    H --> K[Execute SPARQL Query]
+    K --> L[Format Answer with LLM]
+    L --> M[Natural Language Response]
+    
+    style A fill:#e1f5fe,color:#000000
+    style B fill:#fff3e0,color:#000000
+    style C fill:#fff3e0,color:#000000
+    style D fill:#e8f5e8,color:#000000
+    style E fill:#f3e5f5,color:#000000
+    style F fill:#fce4ec,color:#000000
+    style I fill:#fce4ec,color:#000000
+    style H fill:#f3e5f5,color:#000000
+    style L fill:#e8f5e8,color:#000000
+    style J fill:#ffebee,color:#000000
+```
+
+---

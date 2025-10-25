@@ -14,7 +14,7 @@ class TestApp(unittest.TestCase):
         """Set up the test environment."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.dataset_path = os.path.join(base_dir, "..", "dataset", "store", "graph_cache.pkl") # Correct the path to be relative to the project root
-        self.embeddings_path = os.path.join(base_dir, "..", "dataset", "store", "embeddings")
+        self.embeddings_path = os.path.join(base_dir, "..", "dataset", "embeddings")
         # Single App instance with lazy initialization
         self.app = App(self.dataset_path, self.embeddings_path, preload_strategy="none")
         self.startTime = time.time()
@@ -150,8 +150,9 @@ class TestApp(unittest.TestCase):
                         self.assertIn(exp_id, ids)
 
     def test_factual_questions(self):
-        """Test factual questions from the final evaluation."""
+        """Test factual questions."""
         test_cases = [
+            # Sample test cases
             {
                 "question": "Who is the director of Good Will Hunting?",
                 "expected": "Gus Van Sant"
@@ -171,6 +172,50 @@ class TestApp(unittest.TestCase):
             {
                 "question": "Who are the main actors in 'The Bridge on the River Kwai'?",
                 "expected": ["William Holden", "Alec Guinness"]
+            },
+            {
+                "question": "Who is the director of Forrest Gump?",
+                "expected": "Robert Zemeckis"
+            },
+            {
+                "question": "Who directed The Godfather?",
+                "expected": "Francis Ford Coppola"
+            },
+            {
+                "question": "Who is the director of Jurassic Park?",
+                "expected": "Steven Spielberg"
+            },
+            {
+                "question": "Who is the director of The Longest Day?",
+                "expected": ["Gerd Oswald", "Darryl F. Zanuck", "Ken Annakin", "Bernard Wicki"]
+            },
+            {
+                "question": "What is the genre of Shoplifters?",
+                "expected": "drama"
+            },
+            {
+                "question": "Who acted in The Godfather?",
+                "expected": ["Al Pacino", "Marlon Brando", "James Caan"]
+            },
+            {
+                "question": "Who acted in Titanic?",
+                "expected": ["Clifton Webb", "Barbara Stanwyck", "Robert Wagner", "Audrey Dalton"]
+            },
+            {
+                "question": "Who is the main actor of Forrest Gump?",
+                "expected": "Tom Hanks"
+            },
+            {
+                "question": "Who is the screenwriter of 12 Monkeys?",
+                "expected": ["David Peoples", "Chris Marker", "Janet Peoples"]
+            },
+            {
+                "question": "Who made X-Men Beginnings?",
+                "expected": "20th Century Studios"
+            },
+            {
+                "question": "When was the movie The Godfather released?",
+                "expected": "1972"
             }
         ]
 
@@ -189,7 +234,7 @@ class TestApp(unittest.TestCase):
                     self.assertIn(case["expected"], str(result))
 
     def test_embedding_questions(self):
-        """Test embedding questions from the final evaluation."""
+        """Test embedding questions."""
         question = "Who is the screenwriter of The Masked Gang: Cyprus?"
         expected = "Cengiz Küçükayvaz"
         result = self.app.get_answer(question, mode=2)
@@ -206,7 +251,7 @@ class TestApp(unittest.TestCase):
         self.assertIn(expected, str(result).lower())
 
     def test_multimedia_questions(self):
-        """Test multimedia questions from the final evaluation."""
+        """Test multimedia questions."""
         question = "Show me a picture of Halle Berry."
         expected = "https://www.imdb.com/name/nm0000932"
         result = self.app.get_answer(question, mode=4)
@@ -223,7 +268,7 @@ class TestApp(unittest.TestCase):
         self.assertEqual(result, expected)
 
     def test_recommendation_questions(self):
-        """Test recommendation questions from the final evaluation."""
+        """Test recommendation questions."""
         question = "Recommend movies similar to Hamlet and Othello."
         result = self.app.get_answer(question, mode=3)
         self.assertIsInstance(result, (str, dict))
@@ -235,6 +280,7 @@ class TestApp(unittest.TestCase):
         question = "Recommend movies like Nightmare on Elm Street, Friday the 13th, and Halloween."
         result = self.app.get_answer(question, mode=3)
         self.assertIsInstance(result, (str, dict))
+
 
 if __name__ == '__main__':
     unittest.main()

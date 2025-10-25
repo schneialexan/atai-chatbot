@@ -1,5 +1,5 @@
 # core.py
-from .sparql_handler import LocalSPARQL
+from .kg_handler import LocalKnowledgeGraph
 from .qa_handler import QAHandler
 from .recommender import MovieRecommender
 from .multimedia_handler import MultimediaHandler
@@ -15,7 +15,7 @@ class App:
         self.mode = mode
         self.prompt_manager = PromptManager()
         # Lazy initialization - models will be created only when needed
-        self._sparql_handler = None
+        self._kg_handler = None
         self._qa_model = None
         self._recommender = None
         self._multimedia = None
@@ -40,7 +40,7 @@ class App:
         """Preload all models for production use to avoid first-message delay"""
         print("Preloading models for production use...")
         # Initialize all models in the background
-        self._get_sparql_handler()
+        self._get_kg_handler()
         self._get_qa_model()
         self._get_recommender()
         self._get_multimedia()
@@ -49,7 +49,7 @@ class App:
     def preload_models_for_mode(self, mode: int):
         """Preload only the models needed for a specific mode"""
         if mode == 1:
-            self._get_sparql_handler()
+            self._get_kg_handler()
         elif mode == 2:
             self._get_qa_model()
         elif mode == 3:
@@ -60,11 +60,11 @@ class App:
             # For auto mode, preload all models
             self._preload_all_models()
 
-    def _get_sparql_handler(self):
-        """Lazy initialization of SPARQL handler"""
-        if self._sparql_handler is None:
-            self._sparql_handler = LocalSPARQL(dataset_path=self.dataset_path)
-        return self._sparql_handler
+    def _get_kg_handler(self):
+        """Lazy initialization of Knowledge Graph handler"""
+        if self._kg_handler is None:
+            self._kg_handler = LocalKnowledgeGraph(dataset_path=self.dataset_path)
+        return self._kg_handler
 
     def _get_llm_handler(self, handler_name: str):
         """Lazy initialization of a named LLM handler."""
@@ -89,8 +89,7 @@ class App:
             
             self._qa_model = QAHandler(
                 llm_handler=self._get_llm_handler("factual_qa"),
-                sparql_handler=self._get_sparql_handler(),
-                ner_handler=self._get_llm_handler("ner"),
+                kg_handler=self._get_kg_handler(),
                 embedding_handler=embedding_handler,
                 dataset_path=self.dataset_path,
                 embeddings_path=self.embeddings_path
@@ -118,7 +117,7 @@ class App:
             raise ValueError("Mode must be one of: 1 (SPARQL), 2 (QA/embedding), 3 (recommendation), 4 (multimedia), 5 (auto)")
 
         if mode == 1:
-            return self._get_sparql_handler().query(message)
+            return self._get_kg_handler().sparql_query(message)
         elif mode == 2:
             return self._get_qa_model().answer(message)
         elif mode == 3:
@@ -142,7 +141,7 @@ class App:
         # Route to the appropriate handler
         if intent == "sparql_query":
             print("SPARQL query detected")
-            return self._get_sparql_handler().query(message)
+            return self._get_kg_handler().sparql_query(message)
         elif intent == "recommendation_question":
             print("Recommendation question detected")
             return self._get_recommender().recommend(message)
@@ -160,7 +159,7 @@ class App:
             low = message.strip().lower()
             if low.startswith("select") or low.startswith("prefix") or "where {" in low:
                 print("SPARQL query detected by fallback")
-                return self._get_sparql_handler().query(message)
+                return self._get_kg_handler().sparql_query(message)
             if "recommend" in low or "i like" in low:
                 print("Recommendation question detected by fallback")
                 return self._get_recommender().recommend(message)

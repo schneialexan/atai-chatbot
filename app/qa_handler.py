@@ -3,36 +3,45 @@ import re
 import json
 import logging
 import numpy as np
-from typing import List, Dict, Set, Any, Tuple
-from collections import defaultdict
-from thefuzz import process
-from sklearn.metrics.pairwise import cosine_similarity
-import requests
+from typing import List, Dict, Any, Optional, Tuple
+from rapidfuzz import fuzz, process
+from sentence_transformers import util
 
-from app.llm.llm_handler import LLMHandler
+import rdflib
+from rdflib.namespace import RDFS
+import csv
+import spacy
+import difflib
+
+from app.llm.llama_cpp_handler import LlamaCppHandler
+from app.llm.transformer_handler import TransformerHandler
 from app.llm.prompt_manager import PromptManager
-from app.sparql_handler import LocalSPARQL
+from app.kg_handler import LocalKnowledgeGraph
 
 CACHED_PROPERTIES_FILE = "app/cached_properties.json"
 CACHED_ENTITIES_FILE = "app/cached_entities.json"
 
+# define some prefixes
+WD = rdflib.Namespace('http://www.wikidata.org/entity/')
+WDT = rdflib.Namespace('http://www.wikidata.org/prop/direct/')
+DDIS = rdflib.Namespace('http://ddis.ch/atai/')
+SCHEMA = rdflib.Namespace('http://schema.org/')
+
 class QAHandler:
-    def __init__(self, llm_handler: LLMHandler, sparql_handler: LocalSPARQL, ner_handler: LLMHandler, embedding_handler: LLMHandler = None, dataset_path: str = "dataset", embeddings_path: str = "dataset/store/embeddings"):
+    def __init__(self, llm_handler: LlamaCppHandler, kg_handler: LocalKnowledgeGraph, embedding_handler: TransformerHandler, dataset_path: str = "dataset", embeddings_path: str = "dataset/store/embeddings"):
         self.llm_handler = llm_handler
-        self.sparql_handler = sparql_handler
-        self.ner_handler = ner_handler
+        self.kg_handler = kg_handler
         self.embedding_handler = embedding_handler
         self.dataset_path = dataset_path
         self.embeddings_path = embeddings_path
         self.prompt_manager = PromptManager()
+        
         self.properties = self._get_properties()
+        self.property_names = self._get_property_names()
         self.property_synonym_map = self._load_property_synonyms()
         self.entities = self._get_entities()
-        self.entity_embeddings = None
-        self.entity_ids = None
-        self.relation_embeddings = None
-        self.relation_ids = None
-        self._load_embeddings()
+        self._load_embeddings_and_lookup_dictionaries()
+        self.nlp = spacy.load("en_core_web_trf")
 
     def _get_properties(self) -> Dict[str, str]:
         """Gets all properties from the knowledge graph and their labels, with caching."""
@@ -43,8 +52,8 @@ class QAHandler:
 
         properties = {}
         print("Querying knowledge graph for all properties...")
-        for prop_uri in self.sparql_handler.get_all_properties():
-            label = self._get_label_for_uri(prop_uri)
+        for prop_uri in self.kg_handler.get_all_properties():
+            label = self.kg_handler.get_label_for_uri(prop_uri)
             if label:
                 properties[label.lower()] = prop_uri  # Store label in lowercase for easier matching
         
@@ -53,26 +62,26 @@ class QAHandler:
         print(f"Cached properties saved to {CACHED_PROPERTIES_FILE}")
         return properties
 
-    def _get_entities(self) -> Dict[str, str]:
-        """Gets all entities from the knowledge graph and their labels, with caching."""
+    def _get_property_names(self) -> List[str]:
+        """Gets all property names from the knowledge graph."""
+        return list(self.properties.keys())
+
+    def _get_entities(self) -> List[str]:
+        """Gets all entity labels from the knowledge graph, with caching.
+        Returns a list of entity labels for efficient entity extraction."""
         if os.path.exists(CACHED_ENTITIES_FILE):
             with open(CACHED_ENTITIES_FILE, "r", encoding="utf-8") as f:
-                print(f"Loading cached entities from {CACHED_ENTITIES_FILE}")
+                print(f"Loading cached entity labels from {CACHED_ENTITIES_FILE}")
                 return json.load(f)
 
-        entities = {}
-        print("Querying knowledge graph for all entities...")
-        for entity_data in self.sparql_handler.get_all_entities():
-            if isinstance(entity_data, dict) and 'entity' in entity_data and 'label' in entity_data:
-                entity_uri = entity_data['entity']
-                label = entity_data['label']
-                if label:
-                    entities[label.lower()] = entity_uri  # Store label in lowercase for easier matching
-                
+        print("Querying knowledge graph for all entity labels...")
+        entity_labels = self.kg_handler.get_all_entities()
+        print(f"Found {len(entity_labels)} unique entity labels")
+        
         with open(CACHED_ENTITIES_FILE, "w", encoding="utf-8") as f:
-            json.dump(entities, f, indent=4, ensure_ascii=False)
-        print(f"Cached entities saved to {CACHED_ENTITIES_FILE}")
-        return entities
+            json.dump(entity_labels, f, indent=1, ensure_ascii=False)
+        print(f"Cached entity labels saved to {CACHED_ENTITIES_FILE}")
+        return entity_labels
 
     def _load_property_synonyms(self) -> Dict[str, List[str]]:
         """Loads property synonyms from the JSON file and returns the synonym mapping."""
@@ -86,193 +95,403 @@ class QAHandler:
 
         return synonym_data
 
-    def _load_embeddings(self):
-        """Load pre-computed embeddings from the dataset."""
-        try:
-            if os.path.exists(self.embeddings_path):
-                print("Loading entity embeddings...")
+    def _load_embeddings_and_lookup_dictionaries(self):
+        """Loads the embeddings and the lookup dictionaries."""
+        if os.path.exists(self.embeddings_path):
+            try:
+                print("[Embeddings] Loading entity embeddings...")
                 self.entity_embeddings = np.load(os.path.join(self.embeddings_path, "entity_embeds.npy"))
-                self.entity_ids = np.loadtxt(os.path.join(self.embeddings_path, "entity_ids.del"), dtype=str)
                 
-                print("Loading relation embeddings...")
+                print("[Embeddings] Loading relation embeddings...")
                 self.relation_embeddings = np.load(os.path.join(self.embeddings_path, "relation_embeds.npy"))
-                self.relation_ids = np.loadtxt(os.path.join(self.embeddings_path, "relation_ids.del"), dtype=str)
-                
-                print(f"Loaded {len(self.entity_ids)} entity embeddings and {len(self.relation_ids)} relation embeddings")
-            else:
-                print("Warning: Embeddings directory not found. Embedding fallback will not be available.")
-        except Exception as e:
-            print(f"Warning: Could not load embeddings: {e}. Embedding fallback will not be available.")
 
-    def answer(self, question: str):
-        # 1. Extract entities from the question
-        entities = self._extract_entities(question)
-        if not entities:
-            return {"error": "No entities found in the question."}
-        print(f"Extracted entities: {entities}")
-        # 2. Find the URIs for the extracted entities
-        entity_uris = self._find_entity_uris(entities)
-        if not entity_uris:
-            return {"error": "Could not find any of the entities in the knowledge graph."}
-        print(f"Found entity URIs: {entity_uris}")
-        # 3. Identify the property the user is asking about
-        property_uri = self._identify_property(question)
-        if not property_uri:
-            return {"error": "Could not determine the property you are asking about."}
-        print(f"Identified property URI: {property_uri}")
-        # 4. Construct and execute the SPARQL query
-        # For now, we'll assume the first entity found is the main subject
-        main_entity_uri = list(entity_uris.values())[0]
-        print(f"Main entity URI: {main_entity_uri}")
-        # Convert property URI to wdt: format if it's a Wikidata property
-        if property_uri.startswith('http://www.wikidata.org/prop/direct/'):
-            prop_id = property_uri.split('/')[-1]
-            property_predicate = f"wdt:{prop_id}"
+                print("[Embeddings] Loading entity and relation IDs and preparing the embedding lookup dictionaries...")
+                # load the dictionaries
+                with open(os.path.join(self.embeddings_path, "entity_ids.del")) as f:
+                    self.ent2id = {rdflib.URIRef(ent): int(idx) for idx, ent in csv.reader(f, delimiter='\t')}
+                    self.id2ent = {v: k for k, v in self.ent2id.items()}
+                with open(os.path.join(self.embeddings_path, "relation_ids.del")) as f:
+                    self.rel2id = {rdflib.URIRef(rel): int(idx) for idx, rel in csv.reader(f, delimiter='\t')}
+                    self.id2rel = {v: k for k, v in self.rel2id.items()}
+                print(f"[Embeddings] Loaded {len(self.ent2id)} entities and {len(self.rel2id)} relations from embeddings.")
+
+                print("[Embeddings] Loading entity labels from the knowledge graph...")
+                self.ent2lbl = {ent: str(lbl) for ent, lbl in self.kg_handler.graph.subject_objects(RDFS.label)}
+                self.lbl2ent = {lbl: ent for ent, lbl in self.ent2lbl.items()}
+                print(f"[Embeddings] Loaded {len(self.ent2lbl)} entity2label entries and {len(self.lbl2ent)} label2entity entries")
+
+                self.all_entity_labels = list(self.ent2lbl.values())
+                print(f"[Embeddings] Loaded {len(self.all_entity_labels)} entity labels (all)")
+            except Exception as e:
+                print(f"[Embeddings] Error loading embeddings: {e}")
+                raise e
+
         else:
-            property_predicate = f"<{property_uri}>"
-        
-        sparql_query = f"""
-            PREFIX ddis: <http://ddis.ch/atai/>
-            PREFIX wd: <http://www.wikidata.org/entity/>
-            PREFIX wdt: <http://www.wikidata.org/prop/direct/>
-            PREFIX schema: <http://schema.org/>
-            SELECT ?answerLabel ?answerItem WHERE {{
-                <{main_entity_uri}> {property_predicate} ?answerItem .
-                OPTIONAL {{ ?answerItem rdfs:label ?answerLabel .
-                           FILTER(LANG(?answerLabel) = '' || LANGMATCHES(LANG(?answerLabel), 'en')) }}
-            }}
-        """
-        print(f"DEBUG: SPARQL Query: {sparql_query}")
-        results = self.sparql_handler.query(sparql_query)
-        print(f"DEBUG: SPARQL Results: {results}")
+            raise FileNotFoundError(f"[ERROR] Embeddings directory not found: {self.embeddings_path}. Please run the embedding script to generate the embeddings.")
 
-        # 5. Format the answer
-        return self._format_answer(results, question)
+    def _sanitize_question(self, question: str) -> str:
+        """Sanitizes the question."""
+        # Strip outside whitespace
+        question = question.strip()
+        return question
 
-    def _extract_entities(self, question: str) -> List[str]:
-        """Extracts entities from the question using cached entities first, then explicit quotes and NER as fallback."""
-        entities = []
-        processed_question = question
-        question_lower = question.lower()
+    def answer(self, question: str) -> str:
+        """Pipeline for answering a natural language question."""
+        # Sanitize the question
+        question = self._sanitize_question(question)
         
-        # 1. Try to find entities from cached entities in the question
-        cached_entity_labels = list(self.entities.keys())
+        # Try multiple entity extraction strategies
+        _potential_entities = []
         
-        # TODO: Cosine similarity to find entities
+        # 1. Difficult movie entities extraction
+        difficult_movie_entities = self.extract_difficult_movie_entities(question)
+        for movie in difficult_movie_entities:
+            _potential_entities.append({"text": movie, "label": "WORK_OF_ART"})
+        
+        # 2. NER extraction
+        ner_entities = self.ner_entity_extraction(question)
+        if ner_entities:
+            # Only add NER entities if they don't overlap with movie entities
+            for ner_ent in ner_entities:
+                if not any(ner_ent['text'] in movie for movie in difficult_movie_entities):
+                    _potential_entities.append(ner_ent)
+        
+        # Will store the entity property candidates from ner or be empty if the fast approach fails -> fallback to brute force
+        entity_property_candidates = []
+        NUM_OF_POTENTIAL_ENTITIES_TO_CONSIDER = 2  # Number of potential entities to consider for the fast approach (helpful if first extracted potential entity is not the correct one)
+        if _potential_entities:
+            for _potential_entity in _potential_entities[:NUM_OF_POTENTIAL_ENTITIES_TO_CONSIDER]:  # Loop through the first 2 entities
+                # Find entites by label - prioritize movie entities
+                top_k_entities = self.find_entities_by_label(_potential_entity['text'])
+                
+                if top_k_entities:
+                    # Identify the property for EACH entity
+                    for entity_uri, entity_label in top_k_entities:
+                        property_uri, property_label = self.identify_property_for_entity(question, entity_uri, fuzzy_threshold=80)
+                        if property_uri:
+                            entity_property_candidates.append((entity_uri, entity_label, property_uri, property_label))
+        
+        # Identify the best candidate
+        if not entity_property_candidates:  # This runs if the fast approach fails
+            brute_force_entity_property_candidates = []
+            # Brute force fallback as a last resort
+            print(f"[Final Entity Selection] No candidates found, brute force fallback...")
+            # TODO: Inform user that this might take a while...
+            brute_force_entities = self.brute_force_extract_entities(question)
+            if not brute_force_entities:
+                # TODO: Embedding fallback?
+                return "I'm sorry, I couldn't find any entities in your question in my knowledge graph."
+            main_entity = brute_force_entities[0]  # assuming the longest match is the main entity
+            all_entity_uris = self._find_ambiguous_entity_uris(main_entity)  # Find all entity URIs for the main entity label
+            if not all_entity_uris:
+                # TODO: Embedding fallback?
+                return "I'm sorry, I couldn't find any of the entities in your question in my knowledge graph."
+            for entity_uri in all_entity_uris:
+                property_uri, property_label = self.identify_property_for_entity(question, entity_uri, fuzzy_threshold=80)
+                if property_uri:
+                    brute_force_entity_property_candidates.append((entity_uri, main_entity, property_uri, property_label))
+            if not brute_force_entity_property_candidates:
+                # TODO: Embedding fallback?
+                return "I'm sorry, I couldn't find any informations in my knowledge graph that would make it possible to answer your question :("
+            else:
+                print(f"[Final Entity Selection] Brute force candidates found: {brute_force_entity_property_candidates}")
+                if len(brute_force_entity_property_candidates) == 1:
+                    best_entity_uri, best_entity_label, property_uri, property_label = brute_force_entity_property_candidates[0]
+                    print(f"[Final Entity Selection] Single candidate: {best_entity_label} → {best_entity_uri}, property: {property_label}")
+                else:
+                    # Select best entity looking at similarity between question (with replaced property synonyms) and entity label
+                    # TODO: Maybe filter out low score best entities
+                    best_entity_uri, best_entity_label, property_uri, property_label, score = self.select_best_entity(self._replace_synonyms_in_question(question), brute_force_entity_property_candidates)
+                    print(f"[Final Entity Selection] Best match: {best_entity_label} → {best_entity_uri}, property: {property_label} (score={score:.3f})")
 
-        # Sort by length (longest first) to match longer entity names before shorter ones
-        sorted_entities = sorted(cached_entity_labels, key=len, reverse=True)
+        elif len(entity_property_candidates) == 1:
+            best_entity_uri, best_entity_label, property_uri, property_label = entity_property_candidates[0]
+            print(f"[Final Entity Selection] Single candidate: {best_entity_label} → {best_entity_uri}, property: {property_label}")
+        elif len(entity_property_candidates) > 1:
+            # Select best entity looking at similarity between question (with replaced property synonyms) and entity label
+            # TODO: Maybe filter out low score best entities
+            best_entity_uri, best_entity_label, property_uri, property_label, score = self.select_best_entity(self._replace_synonyms_in_question(question), entity_property_candidates)
+            print(f"[Final Entity Selection] Best match: {best_entity_label} → {best_entity_uri}, property: {property_label} (score={score:.3f})")
         
-        # TODO: Extract entities for full words only, not partial matches
+        # Execute the query
+        if best_entity_uri and property_uri:
+            results = self.execute_entity_property_query(best_entity_uri, property_uri)
+        else:
+            return "I'm sorry, I couldn't find any informations in my knowledge graph that would make it possible to answer your question :("
 
-        for entity_label in sorted_entities:
-            # Check if this entity label appears in the question (case-insensitive)
-            if entity_label in question_lower:
-                # Extract the original case version from the question
-                pattern = re.compile(re.escape(entity_label), re.IGNORECASE)
-                matches = pattern.findall(question)
-                for match in matches:
-                    if match.lower() not in [e.lower() for e in entities]:
-                        entities.append(match)
-                        # Remove the matched entity from the question to avoid duplicate extraction
-                        processed_question = processed_question.replace(match, "", 1)
-                        question_lower = processed_question.lower()
-        
-        # 2. Extract entities explicitly enclosed in single quotes
-        quoted_entities = re.findall(r"'([^']+)'", processed_question)
-        for q_entity in quoted_entities:
-            if q_entity.lower() not in [e.lower() for e in entities]:
-                entities.append(q_entity)
-                # Remove the quoted entity from the question to avoid confusing the NER model
-                processed_question = processed_question.replace(f"'{q_entity}'", q_entity)
-        
-        if len(entities) == 0:
-            # 3. Run NER on the (potentially preprocessed) question as fallback
-            response = self.ner_handler.generate_ner_response(processed_question, aggregation_strategy="simple")
-            if response['success']:
-                for entity in response['content']:
-                    # Only add if not already extracted and not just punctuation
-                    if (entity['word'].lower() not in [e.lower() for e in entities] and 
-                        re.search(r'[a-zA-Z0-9]', entity['word'])):
-                        entities.append(entity['word'])
-        
+        final_entity_metadata = self.kg_handler.get_entity_metadata_local(best_entity_uri)
+        final_entity_metadata["entity_label"] = best_entity_label
+
+        # Format the final answer using an LLM with a prompt for natural language formatting from the prompt manager
+        return self.format_answer(results, question, entity_metadata=final_entity_metadata)
+
+    def ner_entity_extraction(self, question: str) -> List[str]:
+        """Extracts entities from the question using NER."""
+        doc = self.nlp(question)
+        entities = [{"text": ent.text, "label": ent.label_} for ent in doc.ents]
+        print(f"[NER] Entities detected: {entities}")
         return entities
 
-    def _find_entity_uris(self, entities: List[str]) -> Dict[str, str]:
-        """Finds the URIs for the given entities using cached entities first, then SPARQL fallback."""
-        entity_uris = {}
+    def extract_difficult_movie_entities(self, question: str) -> List[str]:
+        """Extract difficult movie entities using pattern matching."""
+        movie_entities = []
         
-        for entity in entities:
-            entity_lower = entity.lower()
+        # Common movie patterns based on cached entities - targeting difficult edge cases
+        patterns = [
+            # Star Wars patterns with dashes and colons
+            r'Star Wars: Episode [IVX]+[^?]*',
+            r'Star Wars Episode [IVX]+[^?]*',
             
-            # 1. Try exact match in cached entities
-            if entity_lower in self.entities:
-                entity_uris[entity] = self.entities[entity_lower]
-                continue
+            # X-Men patterns with colons and dashes
+            r'X-Men Beginnings[^?]*',
+            r'X-Men: [A-Z][a-z]+[^?]*',
+            r'X-Men Origins: [A-Z][a-z]+[^?]*',
             
-            # 2. Try fuzzy matching in cached entities
-            cached_entity_labels = list(self.entities.keys())
-            best_match, score = process.extractOne(entity_lower, cached_entity_labels)
+            # Complex titles with colons and em-dashes
+            r'The Hobbit: [A-Z][a-z]+[^?]*',
+            r'Mission: Impossible[^?]*',
+            r'Captain America: [A-Z][a-z]+[^?]*',
+            r'John Wick: [A-Z][a-z]+[^?]*',
+            r'Sweeney Todd: [A-Z][a-z]+[^?]*',
             
-            if score >= 90:  # High confidence threshold for fuzzy matching
-                entity_uris[entity] = self.entities[best_match]
-                continue
+            # Titles with multiple special characters
+            r'[A-Z][a-z]+: [A-Z][a-z]+ – [A-Z][a-z]+[^?]*',
+            r'[A-Z][a-z]+ [A-Z][a-z]+: [A-Z][a-z]+ – [A-Z][a-z]+[^?]*',
             
-            # 3. Try partial matching in cached entities
-            for cached_label, uri in self.entities.items():
-                if entity_lower in cached_label or cached_label in entity_lower:
-                    entity_uris[entity] = uri
-                    break
+            # Specific difficult cases from cache
+            r'The Chronicles of Narnia: [A-Z][a-z]+[^?]*',
+            r'The Lord of the Rings: [A-Z][a-z]+[^?]*',
+            r'The X-Files: [A-Z][a-z]+[^?]*',
+            r'Night at the Museum: [A-Z][a-z]+[^?]*',
+            r'Ice Age: [A-Z][a-z]+[^?]*',
+            r'Hellraiser [IVX]+: [A-Z][a-z]+[^?]*',
             
-            if entity in entity_uris:
-                continue
+            # Movies with numbers and special characters
+            r'[0-9]+: [A-Z][a-z]+[^?]*',
+            r'[A-Z][a-z]+ [0-9]+: [A-Z][a-z]+[^?]*',
             
-            # 4. Fallback to SPARQL queries (original implementation)
-            # Try exact match first
-            query = f"""
-                SELECT ?s WHERE {{
-                    ?s rdfs:label "{entity}"@en .
-                }}
-            """
-            results = self.sparql_handler.query(query)
-            if isinstance(results, list) and len(results) > 0 and 's' in results[0]:
-                entity_uris[entity] = results[0]['s']
-                continue
-            
-            # Try case-insensitive match
-            query = f"""
-                SELECT ?s WHERE {{
-                    ?s rdfs:label ?label .
-                    FILTER(LCASE(?label) = LCASE("{entity}"))
-                }}
-            """
-            results = self.sparql_handler.query(query)
-            if isinstance(results, list) and len(results) > 0 and 's' in results[0]:
-                entity_uris[entity] = results[0]['s']
-                continue
-            
-            # Try partial match
-            query = f"""
-                SELECT ?s WHERE {{
-                    ?s rdfs:label ?label .
-                    FILTER(CONTAINS(LCASE(?label), LCASE("{entity}")))
-                }}
-            """
-            results = self.sparql_handler.query(query)
-            if isinstance(results, list) and len(results) > 0 and 's' in results[0]:
-                entity_uris[entity] = results[0]['s']
+            # Complex titles with multiple colons
+            r'[A-Z][a-z]+: [A-Z][a-z]+: [A-Z][a-z]+[^?]*'
+        ]
         
-        return entity_uris
+        for pattern in patterns:
+            matches = re.findall(pattern, question, re.IGNORECASE)
+            for match in matches:
+                movie_entities.append(match.strip())
+        
+        print(f"[Difficult Movie Entity Extraction] Found movie entities: {movie_entities}")
+        return movie_entities
 
-    def _identify_property(self, question: str, fuzzy_threshold: int = 80) -> str:
-        """Identifies the property the user is asking about."""
-        question_lower = question.lower()
-        processed_question = question_lower
-
-        # 1. Replace synonyms in the question with their canonical property names
-        # We need to be careful with order to avoid partial matches (e.g., 'cast' before 'cast member')
-        # Sort synonyms by length in descending order to match longer phrases first
+    def find_entities_by_label(self, label: str, top_k: int = 5, get_close_matches_n: int = 1, get_close_matches_cutoff: float = 0.6) -> List[Tuple[str, str]]:
+        """Finds the closest matching entity label and returns the top_k matching entity URIs.
+        Returns the top_k matching entity URIs: [(entity_uri, entity_label), ...]"""
         
+        match = difflib.get_close_matches(label, self.all_entity_labels, n=get_close_matches_n, cutoff=get_close_matches_cutoff)
+        if not match:
+            return []
+        # return the top_k matching entity URI(s)
+        best_label = match[0]
+        candidates = [(ent, self.ent2lbl[ent]) for ent, lbl in self.ent2lbl.items() if lbl == best_label]
+        print(f"[Entity Label Matching] Found {len(candidates)} candidates for '{label}': {candidates[:top_k]}")
+        return candidates[:top_k]
+
+    def _compute_score(self, question: str, property: str, metadata: Dict[str, List[str]]) -> float:
+        """Compute compatibility between question and entity metadata."""
+        score = 0.0
+        
+        # Semantic similarity
+        q_emb = self.embedding_handler.model.encode(question, convert_to_tensor=True)
+        meta_text = " ".join(metadata["types"]) + " " + metadata["description"]
+        m_emb = self.embedding_handler.model.encode(meta_text, convert_to_tensor=True)
+        score += float(util.cos_sim(q_emb, m_emb))
+
+        # Domain matching boost
+        domain_expectations = {
+            "director": ["film", "movie", "television", "episode"],
+            "genre": ["film", "book", "music", "novel", "song", "album"],
+            "publication date": ["film", "song", "book", "album"],
+            "author": ["book", "novel"],
+            "composer": ["film", "song", "album"],
+            "cast member": ["film", "tv", "movie"],
+            "performer": ["film", "tv", "movie"],
+            "founded by": ["company", "organization", "startup"],
+            "location": ["place", "city", "country"],
+            "award received": ["film", "person", "book"],
+        }
+        expected = domain_expectations.get(property, [])
+        if any(word in metadata["description"] or word in " ".join(metadata["types"]) for word in expected):
+            score += 0.5
+        return score
+
+    def select_best_entity(self, question: str, candidates: List[Tuple[str, str, str, str]]) -> Tuple[str, str, str, str, float]:
+        """Selects the best entity from the candidates based on the question and property.
+        Returns the best entity URI, label, property URI, property label, and score: (entity_uri, entity_label, property_uri, property_label, score)"""
+        scores = []
+
+        for entity_uri, entity_label, property_uri, property_label in candidates:
+            metadata = self.kg_handler.get_entity_metadata_local(entity_uri)
+            print(f"[Best Entity Selection] Metadata for {entity_uri}: {metadata}")
+            s = self._compute_score(question, property_label, metadata)
+            scores.append((entity_uri, entity_label, property_uri, property_label, s))
+
+        best = max(scores, key=lambda x: x[4])
+        return best
+
+    def _find_entity_with_word_boundaries(self, question: str, entity_label: str) -> Optional[str]:
+        """
+        Find entity in question using flexible matching for complex entities.
+        Supports multi-word entities with punctuation, colons, and special characters.
+        
+        Args:
+            question: User's question (original case preserved)
+            entity_label: Entity label to find
+            
+        Returns:
+            Matched entity string if found, None otherwise
+        """
+        import re
+        
+        # For simple single-word entities: use \b boundaries
+        if ' ' not in entity_label and not any(char in entity_label for char in [':', '–', '-', '(', ')']):
+            pattern = re.compile(r'\b' + re.escape(entity_label) + r'\b', re.IGNORECASE)
+            match = pattern.search(question)
+            if match:
+                return match.group()
+        
+        # For complex entities (with punctuation, colons, etc.): use flexible matching
+        else:
+            if entity_label in question:
+                # Find the position and extract the original case version
+                start_pos = question.find(entity_label)
+                if start_pos != -1:
+                    return question[start_pos:start_pos + len(entity_label)]
+            
+            # Second try: flexible regex pattern for punctuation variations
+            # Create a flexible pattern that handles punctuation variations
+            escaped_label = re.escape(entity_label)
+            
+            # Replace escaped punctuation with flexible patterns
+            # Handle common punctuation variations
+            flexible_pattern = escaped_label
+            flexible_pattern = flexible_pattern.replace(r'\:', r'[:–-]?')  # Colon, em-dash, or hyphen
+            flexible_pattern = flexible_pattern.replace(r'–', r'[–-]')  # Em-dash or hyphen
+            flexible_pattern = flexible_pattern.replace(r'\-', r'[–-]')  # Hyphen variations
+            
+            # Use word boundaries for the start and end, but allow punctuation in between
+            pattern = re.compile(r'\b' + flexible_pattern + r'\b', re.IGNORECASE)
+            match = pattern.search(question)
+            if match:
+                return match.group()
+        
+        return None
+
+    def _select_entities_by_longest_match(self, potential_entities: List[Dict], question: str) -> List[str]:
+        """
+        Select entities using longest match strategy - prioritize entities with longer matches.
+        Also implements safety check for exact case matches.
+        """
+        if not potential_entities:
+            print("[Entity Selection] No potential entities to select from")
+            return []
+        
+        # Safety check: If we have both lowercase and proper case versions, prefer the one that exactly matches the question
+        if len(potential_entities) == 2:
+            entity1, entity2 = potential_entities[0], potential_entities[1]
+            if entity1.lower() == entity2.lower() and entity1 != entity2:
+                # Check which one appears exactly in the original question
+                if entity1 in question and entity2 not in question:
+                    print(f"[Entity Selection] Safety check: preferring exact case match '{entity1}' over '{entity2}'")
+                    return [entity1]
+                elif entity2 in question and entity1 not in question:
+                    print(f"[Entity Selection] Safety check: preferring exact case match '{entity2}' over '{entity1}'")
+                    return [entity2]
+        
+        # Sort entities by match length (longest first)        
+        sorted_entities = sorted(potential_entities, key=len, reverse=True)
+        return sorted_entities
+
+    def brute_force_extract_entities(self, question: str) -> List[str]:
+        """Last resort entity extraction method.
+        
+        This method is used as a last resort when the other entity extraction methods fail.
+        It simply loops through all entity labels from the knowledge graph and tries to find an exact match in the question.
+        """
+        print(f"[Entity Extraction] Processing question: '{question}'")
+        
+        # Collect all potential entity matches
+        potential_entities = []
+        
+        cached_entity_labels = self.entities
+        sorted_entities = sorted(cached_entity_labels, key=len, reverse=True)
+
+        # Exact word boundary matching (highest priority)
+        for entity_label in sorted_entities:
+            # Use original question for exact matching to preserve case
+            match = self._find_entity_with_word_boundaries(question, entity_label)
+            if match and match not in self.property_names:
+                potential_entities.append(entity_label)
+                print(f"[Entity Extraction] Exact match: '{entity_label}'")
+        
+        # Final: Select best entities using longest match strategy
+        selected_entities = self._select_entities_by_longest_match(potential_entities, question)
+        
+        print(f"[Entity Extraction] Final selection: {selected_entities}")
+        return selected_entities
+    
+    def _find_ambiguous_entity_uris(self, entity: str) -> List[str]:
+        """Finds all URIs for the given entity by querying the knowledge graph.
+        Returns a list of entity URIs found in the knowledge graph."""
+        entity = entity.strip()
+        
+        # Generate all possible entity variations to handle different dash types
+        entity_variations = self._generate_entity_variations(entity)
+        
+        all_uris = set()  # Use set to avoid duplicates
+        
+        # Try each variation and collect all results
+        for variation in entity_variations:
+            query = f"""
+                PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+                SELECT DISTINCT ?entity WHERE {{
+                    ?entity rdfs:label "{variation}" .
+                    FILTER(LANG("{variation}") = '' || LANGMATCHES(LANG("{variation}"), 'en'))
+                }}
+            """
+            
+            results = self.kg_handler.sparql_query(query)
+            
+            if isinstance(results, list) and results:
+                uris = [row['entity'] for row in results if 'entity' in row]
+                all_uris.update(uris)  # Add all URIs to the set
+            elif isinstance(results, dict) and 'error' in results:
+                print(f"[Entity URI Search] SPARQL query error for entity '{entity}': {results['error']}")
+        
+        return list(all_uris)  # Convert set back to list
+    
+    def _generate_entity_variations(self, entity: str) -> List[str]:
+        """Generate all possible variations of an entity name to handle different dash types.
+        Returns a list of entity variations.
+        """
+        variations = [entity]  # Start with the original
+        
+        # Add variations with different dash types
+        if '-' in entity:
+            variations.append(entity.replace('-', '–'))  # Replace hyphen with em-dash
+        if '–' in entity:
+            variations.append(entity.replace('–', '-'))  # Replace em-dash with hyphen
+            
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_variations = []
+        for variation in variations:
+            if variation not in seen:
+                unique_variations.append(variation)
+                seen.add(variation)
+                
+        return unique_variations
+
+    def _replace_synonyms_in_question(self, question: str) -> str:
+        """Replaces synonyms in the question with their canonical property names."""
         # First, collect all synonyms and sort by length
         all_synonyms = []
         for prop_name, synonyms_list in self.property_synonym_map.items():
@@ -284,41 +503,83 @@ class QAHandler:
         
         # Use word boundaries to ensure we only replace whole words/phrases
         for syn, prop_name in all_synonyms:
-            # Create a regex pattern that matches the synonym as a whole word or phrase
             # Use word boundaries for single words, or exact phrase matching for multi-word phrases
             if ' ' in syn:
                 # Multi-word phrase - use exact phrase matching
                 pattern = re.compile(re.escape(syn), re.IGNORECASE)
-                if pattern.search(processed_question):
-                    print(f"DEBUG: Found multi-word synonym '{syn}' -> '{prop_name}'")
-                    processed_question = pattern.sub(prop_name, processed_question, count=1)
+                if pattern.search(question):
+                    print(f"[Property Matching] Found multi-word synonym '{syn}' -> '{prop_name}'")
+                    question = pattern.sub(prop_name, question, count=1)
                     break
             else:
                 # Single word - use word boundaries
                 pattern = re.compile(r'\b' + re.escape(syn) + r'\b', re.IGNORECASE)
-                if pattern.search(processed_question):
-                    print(f"DEBUG: Found single-word synonym '{syn}' -> '{prop_name}'")
-                    processed_question = pattern.sub(prop_name, processed_question, count=1)
+                if pattern.search(question):
+                    print(f"[Property Matching] Found single-word synonym '{syn}' -> '{prop_name}'")
+                    question = pattern.sub(prop_name, question, count=1)
                     break
+        return question
 
-        print(f"Processed question: {processed_question}")
+    def identify_property_for_entity(self, question: str, entity_uri: str, fuzzy_threshold: int = 80) -> Tuple[Optional[str], Optional[str]]:
+        """Identifies the property the user is asking about based on a main entity URI.
+        Returns the property URI and the property label if found, (None, None) otherwise: (property_uri, property_label)"""
+        # 1. Replace synonyms in the question with their canonical property names
+        processed_question = self._replace_synonyms_in_question(question.lower())  # properties are always lowercase
+
+        print(f"[Property Matching] Processed question (with synonyms replaced): {processed_question}")
         
-        # 2. Fuzzy string matching against the canonical property names
-        canonical_property_names = list(self.properties.keys())
-        best_match, score = process.extractOne(processed_question, canonical_property_names)
-        
-        print(f"DEBUG: Fuzzy matching - Best match: '{best_match}' with score: {score}")
-        
-        if score > fuzzy_threshold:
-            return self.properties.get(best_match)
+        # 2. Entity-specific property filtering
+        if entity_uri:
+            print(f"[Property Matching] Using entity-specific filtering for: {entity_uri}")
+            entity_props = self.kg_handler.get_entity_property_labels(entity_uri)
+            if entity_props:
+                entity_prop_labels = {p.get('label', '').lower(): p.get('property') 
+                                    for p in entity_props if p.get('label')}
+            else:
+                # TODO: This could mean that the entity has no properties we should distinguish between no properties and an error
+                print(f"[Property Matching] Sparql query returned an empty list for entity '{entity_uri}'")
+                return None, None
+            
+            # Match entity-specific properties to the processed question
+            match = process.extractOne(
+                processed_question,
+                entity_prop_labels.keys(),
+                scorer=fuzz.WRatio,
+                score_cutoff=fuzzy_threshold  # Lower threshold for entity-specific
+            )
+            
+            if match and match[1] >= fuzzy_threshold:
+                print(f"[Property Matching] Entity-specific: '{match[0]}' (score: {match[1]}, threshold: {fuzzy_threshold})")
+                # Return the property URI and the property label
+                return entity_prop_labels[match[0]], match[0]
+            else:
+                print(f"[Property Matching] No property found for entity '{entity_uri}' in question '{question}' with threshold {fuzzy_threshold}")
+                return None, None
+
+    def execute_entity_property_query(self, entity_uri: str, property_uri: str) -> Dict[str, Any]:
+        """Executes the query for the given entity and property.
+        Returns the results if found, None otherwise."""
+        query = f"""
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            SELECT ?answerLabel ?answerItem WHERE {{
+                <{entity_uri}> <{property_uri}> ?answerItem .
+            }}
+        """
+        results = self.kg_handler.sparql_query(query)
+        if isinstance(results, list) and results:
+            return results
+        elif isinstance(results, dict) and 'error' in results:
+            print(f"[Entity Property Query] SPARQL query error for entity '{entity_uri}' and property '{property_uri}': {results['error']}")
+            return None
         else:
-            print(f"ERROR: No property found for question: {question}")
+            print(f"[Entity Property Query] Unknown error: {results}")
             return None
 
-    def _format_answer(self, results: Dict[str, Any], question: str) -> str:
+    def format_answer(self, results: Dict[str, Any], question: str, entity_metadata: Dict) -> str:
         """Formats the answer for the user using LLM with prompt for natural language formatting."""
         if isinstance(results, dict) and "error" in results:
             print(f"ERROR: {results['error']}")
+            return "I could not find an answer to your question in my knowledge graph.. I'm sorry about that."
 
         # Handle different types of answers
         answers = []
@@ -331,7 +592,7 @@ class QAHandler:
                 answer_item = res['answerItem']
                 if answer_item.startswith('http'):
                     # It's a URI - try to get its label
-                    label = self._get_label_for_uri(answer_item)
+                    label = self.kg_handler.get_label_for_uri(answer_item)
                     if label != answer_item:  # If we got a proper label
                         answers.append(label)
                     else:
@@ -343,12 +604,21 @@ class QAHandler:
         if not answers:
             return "I could not find an answer to your question in my knowledge graph.. I'm sorry about that."
 
+        # Remove duplicates while preserving order
+        unique_answers = []
+        seen = set()
+        for answer in answers:
+            if answer not in seen:
+                unique_answers.append(answer)
+                seen.add(answer)
+
         # Use LLM to format the answer naturally
         try:
             # Prepare the raw data for the LLM
             raw_data = {
-                "answers": answers,
-                "count": len(answers)
+                "answers": unique_answers,
+                "answers_count": len(unique_answers),
+                "entity_metadata": entity_metadata
             }
             
             # Get the prompt for natural language formatting
@@ -365,42 +635,9 @@ class QAHandler:
                 return "Based on my knowledge graph: " + response['content']
             else:
                 # Fallback to simple formatting if LLM fails
-                return "Based on my knowledge graph: " + ", ".join(answers)
+                return "Based on my knowledge graph: " + ", ".join(unique_answers)
                 
         except Exception as e:
             print(f"Error formatting answer with LLM: {e}")
             # Fallback to simple formatting if LLM fails
-            return "Based on my knowledge graph: " + ", ".join(answers)
-
-    def _get_label_for_uri(self, uri: str) -> str:
-        """Gets the label for a given URI."""
-        # TODO: implement wikidata label lookup as fallback
-        query = f"""
-            SELECT ?label WHERE {{
-                <{uri}> rdfs:label ?label .
-                FILTER(LANG(?label) = '' || LANGMATCHES(LANG(?label), 'en'))
-            }}
-        """
-        results = self.sparql_handler.query(query)
-        if isinstance(results, list) and len(results) > 0 and 'label' in results[0]:
-            return results[0]['label']
-        else:
-            print(f"ERROR: No label found for URI in our knowledge graph, looking up in Wikidata: {uri}")
-            # Extract id
-            id = str(uri.split('/')[-1])
-            # Add user agent
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-            response = requests.get(f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={id}&format=json&languages=en", headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                if 'entities' in data and id in data['entities']:
-                    print(f"Found label in Wikidata: {data['entities'][id]['labels']['en']['value']}")
-                    return data['entities'][id]['labels']['en']['value']
-                else:
-                    print(f"ERROR: No label found for ID in Wikidata: {id}")
-                    return uri
-            else:
-                print(f"ERROR: Failed to query Wikidata for ID: {id}")
-                return uri
+            return "Based on my knowledge graph: " + ", ".join(unique_answers)

@@ -6,6 +6,7 @@ from rdflib.plugins.sparql.processor import SPARQLResult
 from rdflib import URIRef
 import requests
 from rdflib.namespace import RDFS
+from bs4 import BeautifulSoup
 
 # define some prefixes
 WD = rdflib.Namespace('http://www.wikidata.org/entity/')
@@ -166,15 +167,35 @@ class LocalKnowledgeGraph:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
-            response = requests.get(f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={id}&format=json&languages=en", headers=headers)
+            # Try Wikidata API first
+            response = requests.get(
+                f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={id}&format=json&languages=en&props=labels",
+                headers=headers
+            )
+            label = None
             if response.status_code == 200:
                 data = response.json()
-                if 'entities' in data and id in data['entities']:
-                    print(f"Found label in Wikidata: {data['entities'][id]['labels']['en']['value']}")
-                    return data['entities'][id]['labels']['en']['value']
-                else:
-                    print(f"ERROR: No label found for ID in Wikidata: {id}")
-                    return "Unknown"
+                entity = data.get('entities', {}).get(id)
+                if entity:
+                    # Try English label
+                    label = entity.get('labels', {}).get('en', {}).get('value')
+                    if not label:
+                        # Fallback: pick first available language
+                        if 'labels' in entity and entity['labels']:
+                            label = next(iter(entity['labels'].values()))['value']
+
+            # Fallback: scrape HTML if no label found
+            if not label:
+                page_url = f"https://www.wikidata.org/wiki/{id}"
+                response = requests.get(page_url, headers=headers)
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    heading = soup.find('h1', id='firstHeading')
+                    if heading:
+                        label = heading.text.strip()
+            if label:
+                print(f"Found label in Wikidata: {label}")
+                return label
             else:
-                print(f"ERROR: Failed to query Wikidata for ID: {id}")
-                return "Unknown"
+                print(f"ERROR: No label found for ID: {id}")
+                return id

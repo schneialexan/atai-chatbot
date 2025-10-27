@@ -1,0 +1,152 @@
+import unittest
+import os
+import sys
+import time
+
+# Add the root directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from app.core import App
+
+class TestApp(unittest.TestCase):
+
+    def setUp(self):
+        """Set up the test environment."""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.dataset_path = os.path.join(base_dir, "..", "dataset", "store", "graph_cache.pkl") # Correct the path to be relative to the project root
+        self.embeddings_path = os.path.join(base_dir, "..", "dataset", "embeddings")
+        # Single App instance with lazy initialization
+        self.app = App(self.dataset_path, self.embeddings_path, preload_strategy="none")
+        self.startTime = time.time()
+
+    def tearDown(self):
+        """Tear down the test environment."""
+        t = time.time() - self.startTime
+        print(f"{self.id()}: {t:.4f}s")
+
+    def test_sparql_queries(self):
+        """Test SPARQL queries from the intermediate evaluation."""
+        test_cases = [
+            {
+                "name": "Top-rated movie",
+                "query": '''
+                    PREFIX ddis: <http://ddis.ch/atai/>
+                    PREFIX wd: <http://www.wikidata.org/entity/>
+                    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+                    PREFIX schema: <http://schema.org/>
+                    SELECT ?movieLabel ?movieltem WHERE {
+                      ?movieltem wdt:P31 wd:Q11424.
+                      ?movieltem ddis:rating ?rating.
+                      ?movieltem rdfs:label ?movieLabel.
+                    }
+                    ORDER BY DESC(?rating)
+                    LIMIT 1
+                ''',
+                "expected_string": "Acidulous Midtime Shed",
+                "expected_id": "Q10850238456619979",
+                "label_field": "movieLabel",
+                "id_field": "movieltem"
+            },
+            {
+                "name": "Director of The Bridge on the River Kwai",
+                "query": '''
+                    PREFIX ddis: <http://ddis.ch/atai/>
+                    PREFIX wd: <http://www.wikidata.org/entity/>
+                    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+                    PREFIX schema: <http://schema.org/>
+                    SELECT ?directorLabel ?directorItem WHERE {
+                      ?movieltem rdfs:label "The Bridge on the River Kwai".
+                      ?movieltem wdt:P57 ?directorItem.
+                      ?directorItem rdfs:label ?directorLabel.
+                    }
+                ''',
+                "expected_string": "David Lean",
+                "expected_id": "Q55260",
+                "label_field": "directorLabel",
+                "id_field": "directorItem"
+            },
+            {
+                "name": "Genre of Shoplifters",
+                "query": '''
+                    PREFIX ddis: <http://ddis.ch/atai/>
+                    PREFIX wd: <http://www.wikidata.org/entity/>
+                    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+                    PREFIX schema: <http://schema.org/>
+                    SELECT ?genreLabel ?genreltem WHERE {
+                      ?movieltem rdfs:label "Shoplifters".
+                      ?movieltem wdt:P136 ?genreltem.
+                      ?genreltem rdfs:label ?genreLabel.
+                    }
+                ''',
+                "expected_string": "drama film",
+                "expected_id": "Q130232",
+                "label_field": "genreLabel",
+                "id_field": "genreltem"
+            },
+            {
+                "name": "Producers of French Kiss",
+                "query": '''
+                    PREFIX ddis: <http://ddis.ch/atai/>
+                    PREFIX wd: <http://www.wikidata.org/entity/>
+                    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+                    PREFIX schema: <http://schema.org/>
+                    SELECT ?producerLabel ?producerltem WHERE {
+                      ?movieltem rdfs:label "French Kiss".
+                      ?movieltem wdt:P162 ?producerltem .
+                      ?producerltem rdfs:label ?producerLabel.
+                    }
+                ''',
+                "expected_strings": ["Tim Bevan", "Meg Ryan", "Eric Fellner"],
+                "expected_ids": ["Q1473065", "Q167498", "Q1351291"],
+                "label_field": "producerLabel",
+                "id_field": "producerltem"
+            },
+            {
+                "name": "South Korean Academy Award Best Picture",
+                "query": '''
+                    PREFIX ddis: <http://ddis.ch/atai/>
+                    PREFIX wd: <http://www.wikidata.org/entity/>
+                    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+                    PREFIX schema: <http://schema.org/>
+                    SELECT ?movieLabel ?movieltem WHERE {
+                      ?movieltem wdt:P31 wd:Q11424.
+                      ?movieltem wdt:P495 ?countryltem.
+                      ?countryltem rdfs:label "South Korea".
+                      ?movieltem wdt:P166 ?awardItem.
+                      ?awardItem rdfs:label "Academy Award for Best Picture".
+                      ?movieltem rdfs:label ?movieLabel.
+                    }
+                ''',
+                "expected_string": "Parasite",
+                "expected_id": "Q61448040",
+                "label_field": "movieLabel",
+                "id_field": "movieltem"
+            }
+        ]
+
+        # Run all queries as subtests
+        for i, case in enumerate(test_cases, start=1):
+            with self.subTest(test=i, name=case["name"]):
+                print(100*"=")
+                print(f"\nTest {i}: {case['name']}")
+                print("question:", case["query"].strip())
+
+                result = self.app.get_answer(case["query"], mode=1)
+                labels = [res.get(case["label_field"]) for res in result]
+                ids = [res.get(case["id_field"], '').split('/')[-1] for res in result]
+
+                # Print the answer
+                print("answer:", labels)
+                print(100*"=")
+
+                # Handle single vs multiple expected values
+                if "expected_string" in case:
+                    print("expected answer:", case["expected_string"])
+                    self.assertIn(case["expected_string"], labels)
+                    self.assertIn(case["expected_id"], ids)
+                else:
+                    print("expected answer:", case["expected_strings"])
+                    for exp in case["expected_strings"]:
+                        self.assertIn(exp, labels)
+                    for exp_id in case["expected_ids"]:
+                        self.assertIn(exp_id, ids)

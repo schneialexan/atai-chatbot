@@ -197,21 +197,21 @@ class QAHandler:
                 print(f"[Final Entity Selection] Brute force candidates found: {brute_force_entity_property_candidates}")
                 if len(brute_force_entity_property_candidates) == 1:
                     best_entity_uri, best_entity_label, property_uri, property_label = brute_force_entity_property_candidates[0]
-                    print(f"[Final Entity Selection] Single candidate: {best_entity_label} → {best_entity_uri}, property: {property_label}")
+                    print(f"[Final Entity Selection] Single candidate: {best_entity_label} --> {best_entity_uri}, property: {property_label}")
                 else:
                     # Select best entity looking at similarity between question (with replaced property synonyms) and entity label
                     # TODO: Maybe filter out low score best entities
                     best_entity_uri, best_entity_label, property_uri, property_label, score = self.select_best_entity(self._replace_synonyms_in_question(question), brute_force_entity_property_candidates)
-                    print(f"[Final Entity Selection] Best match: {best_entity_label} → {best_entity_uri}, property: {property_label} (score={score:.3f})")
+                    print(f"[Final Entity Selection] Best match: {best_entity_label} --> {best_entity_uri}, property: {property_label} (score={score:.3f})")
 
         elif len(entity_property_candidates) == 1:
             best_entity_uri, best_entity_label, property_uri, property_label = entity_property_candidates[0]
-            print(f"[Final Entity Selection] Single candidate: {best_entity_label} → {best_entity_uri}, property: {property_label}")
+            print(f"[Final Entity Selection] Single candidate: {best_entity_label} --> {best_entity_uri}, property: {property_label}")
         elif len(entity_property_candidates) > 1:
             # Select best entity looking at similarity between question (with replaced property synonyms) and entity label
             # TODO: Maybe filter out low score best entities
             best_entity_uri, best_entity_label, property_uri, property_label, score = self.select_best_entity(self._replace_synonyms_in_question(question), entity_property_candidates)
-            print(f"[Final Entity Selection] Best match: {best_entity_label} → {best_entity_uri}, property: {property_label} (score={score:.3f})")
+            print(f"[Final Entity Selection] Best match: {best_entity_label} --> {best_entity_uri}, property: {property_label} (score={score:.3f})")
         
         # Execute the query
         if best_entity_uri and property_uri:

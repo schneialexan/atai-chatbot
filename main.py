@@ -58,12 +58,13 @@ class Agent:
         """Start listening for events."""
         self.speakeasy.start_listening()
 
-    def log_event(self, chatroom_id: str, question: str, answer: str):
-        """Write structured logs to file."""
+    def log_event(self, chatroom_id: str, question: str, answer: str, response_time: float):
+        """Write structured logs to file, including response time."""
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         log_entry = (
             f"[{timestamp}] - {self.session_token} - {chatroom_id} - "
-            f"question: \"{question}\" - answer: \"{answer}\"\n"
+            f"question: \"{question}\" - answer: \"{answer}\" - "
+            f"response_time: {response_time:.2f} s\n"
         )
         try:
             with open(self.log_file, "a", encoding="utf-8") as log:
@@ -71,14 +72,17 @@ class Agent:
         except Exception as e:
             print(f"Logging error: {e}")
 
+
     def on_new_message(self, message : str, room : Chatroom):
         """Callback function to handle new messages."""
         try:
             print(f"{100*'-'}\nNew message in room {room.room_id}: {message}\n{100*'-'}")
+            start = time.time()
             answer = self.app.get_answer(message=message, mode=self.mode)
-            print(f"{100*'-'}\nAnswer from Bot: '{answer}'.\n{100*'-'}")
+            response_time = time.time() - start
+            print(f"{100*'-'}\nAnswer from Bot (in {response_time:.2f} s): '{answer}'.\n{100*'-'}")
             room.post_messages(f"{answer}")
-            self.log_event(room.room_id, message, answer)
+            self.log_event(room.room_id, message, answer, response_time)
         except Exception as e:
             print(f"{100*'-'}\nError: {e}\n{100*'-'}")
             room.post_messages(f"I cannot answer your question. Please try again!")

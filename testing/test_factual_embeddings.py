@@ -27,7 +27,42 @@ class TestApp(unittest.TestCase):
     def test_factual_questions(self):
         """Test factual questions."""
         test_cases = [
-            # Sample test cases
+            {
+                "question": "Please answer this question with a factual approach: From what country is the movie 'Aro Tolbukhin. En la mente del asesino'?",
+                "expected": "Mexico"
+            },
+            {
+                "question": "Please answer this question with a factual approach: Who is the screenwriter of 'Shortcut to Happiness'?",
+                "expected": "Pete Dexter"
+            },
+            {
+                "question": "Please answer this question with a factual approach: Who directed ‘Fargo’?",
+                "expected": ["Ethan Coen", "Joel Coen"]
+            },
+            {
+                "question": "Please answer this question with a factual approach: What genre is the movie 'Bandit Queen'?",
+                "expected": ["drama", "biographical", "crime"]
+            },
+            {
+                "question": "Please answer this question with a factual approach: When did the movie 'Miracles Still Happen' come out?",
+                "expected": "1974-07-19"
+            },
+            {
+                "question": "Please answer this question with an embedding approach: Who is the director of ‘Apocalypse Now’?",
+                "expected": "John Milius"
+            },
+            {
+                "question": "Please answer this question with an embedding approach: Who is the screenwriter of ‘12 Monkeys’?",
+                "expected": "Carol Florence"
+            },
+            {
+                "question": "Please answer this question with an embedding approach: What is the genre of ‘Shoplifters’?",
+                "expected": "comedy film"
+            },
+            {
+                "question": "Please answer this question: Who is the director of ‘Good Will Hunting’?",
+                "expected": "Gus Van Sant"
+            },
             {
                 "question": "Who is the director of Good Will Hunting?",
                 "expected": "Gus Van Sant"

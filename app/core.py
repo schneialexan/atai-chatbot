@@ -119,7 +119,13 @@ class App:
         if mode == 1:
             return self._get_kg_handler().sparql_query(message)
         elif mode == 2:
-            return self._get_qa_model().answer(message)
+            if "factual" in message.lower():
+                submode = "factual"
+            elif "embedding" in message.lower():
+                submode = "embedding"
+            else:
+                submode = "factual"
+            return self._get_qa_model().answer(message, submode=submode)
         elif mode == 3:
             return self._get_recommender().recommend(message)
         elif mode == 4:
@@ -129,6 +135,10 @@ class App:
 
     def _handle_all(self, message: str):
         """Auto-detect the appropriate mode based on message content"""
+        if "factual" in message.lower():
+            return self._get_qa_model().answer(message, submode="factual")
+        elif "embedding" in message.lower():
+            return self._get_qa_model().answer(message, submode="embedding")
         # Use LLM to classify intent
         response = self.intent_classifier.generate_json_response(self.prompt_manager.get_prompt("intent_classifier", user_message=message))
         
@@ -150,7 +160,7 @@ class App:
             return self._get_multimedia().get_image(message)
         elif intent == "factual_question":
             print("Factual question detected")
-            return self._get_qa_model().answer(message)
+            return self._get_qa_model().answer(message, submode="factual")
         elif intent == "greeting":
             print("Greeting detected")
             return "Hello I am GrayBarkingDog! How can I help you today?"
@@ -167,4 +177,4 @@ class App:
                 print("Multimedia question detected by fallback")
                 return self._get_multimedia().get_image(message)
             print("Factual question detected by fallback")
-            return self._get_qa_model().answer(message)
+            return self._get_qa_model().answer(message, submode="factual")

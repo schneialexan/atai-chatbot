@@ -8,6 +8,8 @@ The chatbot supports four main modes of operation:
 
 1. **SPARQL Mode**: Direct querying of the RDF knowledge graph
 2. **QA Mode**: Natural language question answering with entity extraction and SPARQL generation
+   - **Factual Submode**: Traditional QA with entity extraction and SPARQL queries
+   - **Embedding Submode**: Embedding-based similarity search for entity matching
 3. **Recommendation Mode**: Movie recommendations based on user preferences
 4. **Multimedia Mode**: Image retrieval and multimedia content handling
 
@@ -79,24 +81,26 @@ python main.py
 
 **Available modes:**
 - `1`: SPARQL queries
-- `2`: Natural language QA
+- `2`: Natural language QA (with factual/embedding submode detection)
 - `3`: Movie recommendations  
 - `4`: Multimedia retrieval
-- `5`: Auto-detect mode
+- `5`: Auto-detect mode (with submode detection)
 
 **Example questions:**
 - SPARQL: `SELECT * WHERE { ?s ?p ?o } LIMIT 5`
-- QA: `Who directed The Godfather?`
+- QA Factual: `Who directed The Godfather?`
 - Recommendations: `Recommend movies like The Godfather`
 - Multimedia: `Show me a picture of The Godfather`
 
 ## Key Components
 
 ### QA Handler
-Sophisticated question answering with:
-- **Entity Extraction**: NER-based entity identification with fuzzy matching fallback
-- **Property Mapping**: Synonym-based property identification with fuzzy string matching  
-- **SPARQL Generation**: Automatic query construction from natural language
+Sophisticated question answering with two submodes:
+- **Factual Submode**: Traditional QA with entity extraction and SPARQL queries
+  - **Entity Extraction**: NER-based entity identification with fuzzy matching fallback
+  - **Property Mapping**: Synonym-based property identification with fuzzy string matching  
+  - **SPARQL Generation**: Automatic query construction from natural language
+- **Embedding Submode**: Embedding-based search for answer to question
 - **Answer Formatting**: LLM-powered natural language response generation
 
 ### Local LLM Framework
@@ -108,15 +112,18 @@ Modular framework supporting:
 
 ## Testing
 
-**Run all tests:**
+### Running Factual Tests
+Test factual question answering with different test cases covering directors, actors, genres, and release dates:
+
 ```bash
-python -m unittest testing/test_app.py
+python -m unittest testing.test_factual_embeddings
 ```
 
-**Run specific tests:**
+### Running SPARQL Tests
+Test direct SPARQL query functionality with different evaluation queries:
+
 ```bash
-python -m unittest testing.test_app.TestApp.test_sparql_queries
-python -m unittest testing.test_app.TestApp.test_factual_questions
+python -m unittest testing.test_sparql
 ```
 
 ## Architecture Diagrams

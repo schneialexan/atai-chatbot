@@ -133,27 +133,54 @@ class QAHandler:
         """Sanitizes the question."""
         # Strip outside whitespace
         question = question.strip()
+
+        # Remove prefixes
+        question = re.sub(r"please answer this question with a factual approach:\s*", "", question, flags=re.IGNORECASE)
+        question = re.sub(r"please answer this question with an embedding approach:\s*", "", question, flags=re.IGNORECASE)
+        question = re.sub(r"please answer this question:\s*", "", question, flags=re.IGNORECASE)
+        
+        print(f"[Sanitized Question] {question}")
+
         return question
 
-    def answer(self, question: str) -> str:
-        """Pipeline for answering a natural language question."""
+    def answer(self, question: str, submode: str = "factual") -> str:
+        """Pipeline for answering a natural language question based on different approaches."""
+
+        if submode == "factual":
+            print(f"[QA Handler] Answering question with factual approach...")
+            return self._answer_factual(question)
+        elif submode == "embedding":
+            print(f"[QA Handler] Answering question with embedding approach...")
+            return self._answer_embedding(question)
+        else:
+            raise ValueError(f"Invalid submode: {submode}")
+
+    def _answer_embedding(self, question: str) -> str:
+        """Answers a question using the embedding model."""
+        # Sanitize the question
+        question = self._sanitize_question(question)
+        # TODO: Implement the embedding approach
+        return "I'm sorry, my embedding approach is not yet implemented."
+
+    def _answer_factual(self, question: str) -> str:
+        """Answers a factual question."""
         # Sanitize the question
         question = self._sanitize_question(question)
         
         # Try multiple entity extraction strategies
         _potential_entities = []
         
-        # 1. Difficult movie entities extraction
-        difficult_movie_entities = self.extract_difficult_movie_entities(question)
-        for movie in difficult_movie_entities:
-            _potential_entities.append({"text": movie, "label": "WORK_OF_ART"})
+        # 1. Difficult entities extraction
+        difficult_entities = self.extract_difficult_entities(question)
+        for entity in difficult_entities:
+            _potential_entities.append({"text": entity, "label": "WORK_OF_ART"})
         
         # 2. NER extraction
         ner_entities = self.ner_entity_extraction(question)
         if ner_entities:
-            # Only add NER entities if they don't overlap with movie entities
+            # Only add NER entities if they don't overlap with difficult entities
             for ner_ent in ner_entities:
-                if not any(ner_ent['text'] in movie for movie in difficult_movie_entities):
+                if not any(ner_ent['text'] in entity for entity in difficult_entities):
                     _potential_entities.append(ner_ent)
         
         # Will store the entity property candidates from ner or be empty if the fast approach fails -> fallback to brute force
@@ -161,7 +188,7 @@ class QAHandler:
         NUM_OF_POTENTIAL_ENTITIES_TO_CONSIDER = 2  # Number of potential entities to consider for the fast approach (helpful if first extracted potential entity is not the correct one)
         if _potential_entities:
             for _potential_entity in _potential_entities[:NUM_OF_POTENTIAL_ENTITIES_TO_CONSIDER]:  # Loop through the first 2 entities
-                # Find entites by label - prioritize movie entities
+                # Find entites by label - prioritize difficult entities
                 top_k_entities = self.find_entities_by_label(_potential_entity['text'])
                 
                 if top_k_entities:
@@ -232,12 +259,18 @@ class QAHandler:
         print(f"[NER] Entities detected: {entities}")
         return entities
 
-    def extract_difficult_movie_entities(self, question: str) -> List[str]:
-        """Extract difficult movie entities using pattern matching."""
-        movie_entities = []
+    def extract_difficult_entities(self, question: str) -> List[str]:
+        """Extract difficult entities using pattern matching."""
+        entities = []
         
-        # Common movie patterns based on cached entities - targeting difficult edge cases
+        # Common patterns based on cached entities - targeting difficult edge cases
         patterns = [
+            # Entities wrapped in quotes (highest priority)
+            r"'([^']+)'",  # Single quotes
+            r'"([^"]+)"',  # Double quotes
+            r"‘([^’]+)’",  # Single curly quotes
+            r"“([^”]+)”",  # Double curly quotes
+            
             # Star Wars patterns with dashes and colons
             r'Star Wars: Episode [IVX]+[^?]*',
             r'Star Wars Episode [IVX]+[^?]*',
@@ -277,10 +310,10 @@ class QAHandler:
         for pattern in patterns:
             matches = re.findall(pattern, question, re.IGNORECASE)
             for match in matches:
-                movie_entities.append(match.strip())
+                entities.append(match.strip())
         
-        print(f"[Difficult Movie Entity Extraction] Found movie entities: {movie_entities}")
-        return movie_entities
+        print(f"[Difficult Entity Extraction] Found difficult entities: {entities}")
+        return entities
 
     def find_entities_by_label(self, label: str, top_k: int = 5, get_close_matches_n: int = 1, get_close_matches_cutoff: float = 0.6) -> List[Tuple[str, str]]:
         """Finds the closest matching entity label and returns the top_k matching entity URIs.

@@ -13,3 +13,4 @@ RapidFuzz
 nltk
 spacy
 pandas
+beautifulsoup4

@@ -135,10 +135,12 @@ class App:
 
     def _handle_all(self, message: str):
         """Auto-detect the appropriate mode based on message content"""
+        # Check if the message is a factual question or an embedding question (skip llm intent)
         if "factual" in message.lower():
             return self._get_qa_model().answer(message, submode="factual")
         elif "embedding" in message.lower():
             return self._get_qa_model().answer(message, submode="embedding")
+
         # Use LLM to classify intent
         response = self.intent_classifier.generate_json_response(self.prompt_manager.get_prompt("intent_classifier", user_message=message))
         

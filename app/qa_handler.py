@@ -146,10 +146,30 @@ class QAHandler:
 
     def answer(self, question: str, submode: str = "factual") -> str:
         """Pipeline for answering a natural language question based on different approaches."""
+        # Set the object wide submode (factual or embedding)
         self.submode = submode
+        
         # Sanitize the question
         question = self._sanitize_question(question)
         
+        # Extract entities
+        best_entity_uri, best_entity_label, property_uri, property_label = self.extract_entities_and_properties(question)
+
+        # Check if entity and property were found
+        if not best_entity_uri or not property_uri or not best_entity_label:
+            return "I'm sorry, I couldn't find any informations in my knowledge graph that would make it possible to answer your question :("
+
+        if self.submode == "factual":
+            print(f"[QA Handler] Answering question with factual approach...")
+            return self._answer_factual(question, best_entity_uri, property_uri, best_entity_label)
+        elif self.submode == "embedding":
+            print(f"[QA Handler] Answering question with embedding approach...")
+            return self._answer_embedding(question, best_entity_uri, property_uri, best_entity_label)
+        else:
+            raise ValueError(f"Invalid submode: {self.submode}")
+
+    def extract_entities_and_properties(self, question: str):
+        """Extracts entities and properties from the question."""
         # Try multiple entity extraction strategies
         _potential_entities = []
         
@@ -190,19 +210,19 @@ class QAHandler:
             brute_force_entities = self.brute_force_extract_entities(question)
             if not brute_force_entities:
                 # TODO: Embedding fallback?
-                return "I'm sorry, I couldn't find any entities in your question in my knowledge graph."
+                return None, None, None, None
             main_entity = brute_force_entities[0]  # assuming the longest match is the main entity
             all_entity_uris = self._find_ambiguous_entity_uris(main_entity)  # Find all entity URIs for the main entity label
             if not all_entity_uris:
                 # TODO: Embedding fallback?
-                return "I'm sorry, I couldn't find any of the entities in your question in my knowledge graph."
+                return None, None, None, None
             for entity_uri in all_entity_uris:
                 property_uri, property_label = self.identify_property_for_entity(question, entity_uri, fuzzy_threshold=80)
                 if property_uri:
                     brute_force_entity_property_candidates.append((entity_uri, main_entity, property_uri, property_label))
             if not brute_force_entity_property_candidates:
                 # TODO: Embedding fallback?
-                return "I'm sorry, I couldn't find any informations in my knowledge graph that would make it possible to answer your question :("
+                return None, None, None, None
             else:
                 print(f"[Final Entity Selection] Brute force candidates found: {brute_force_entity_property_candidates}")
                 if len(brute_force_entity_property_candidates) == 1:
@@ -223,18 +243,11 @@ class QAHandler:
             best_entity_uri, best_entity_label, property_uri, property_label, score = self.select_best_entity(self._replace_synonyms_in_question(question), entity_property_candidates)
             print(f"[Final Entity Selection] Best match: {best_entity_label} --> {best_entity_uri}, property: {property_label} (score={score:.3f})")
         
-        if self.submode == "factual":
-            print(f"[QA Handler] Answering question with factual approach...")
-            return self._answer_factual(question, best_entity_uri, property_uri, best_entity_label)
-        elif self.submode == "embedding":
-            print(f"[QA Handler] Answering question with embedding approach...")
-            return self._answer_embedding(question, best_entity_uri, property_uri, best_entity_label)
-        else:
-            raise ValueError(f"Invalid submode: {self.submode}")
+        return best_entity_uri, best_entity_label, property_uri, property_label
 
     def _answer_embedding(self, question, best_entity_uri, property_uri, best_entity_label) -> str:
         """Answers a question using the embedding model."""
-        # Sanitize the question
+        # Search for the most likely answer entity using embedding similarity based on extracted entity and property
         ent_emb = self.entity_emb[self.ent2id[best_entity_uri]]
         property_uri = WDT[property_uri.split("/")[-1]]
         rel_emb = self.relation_emb[self.rel2id[property_uri]]
@@ -252,12 +265,9 @@ class QAHandler:
 
     def _answer_factual(self, question, best_entity_uri, property_uri, best_entity_label) -> str:
         """Answers a factual question."""
-        # Execute the query
-        if best_entity_uri and property_uri:
-            results = self.execute_entity_property_query(best_entity_uri, property_uri)
-        else:
-            return "I'm sorry, I couldn't find any informations in my knowledge graph that would make it possible to answer your question :("
-
+        # Execute the SPARQL query based on extracted entity and property
+        results = self.execute_entity_property_query(best_entity_uri, property_uri)
+        
         final_entity_metadata = self.kg_handler.get_entity_metadata_local(best_entity_uri)
         final_entity_metadata["entity_label"] = best_entity_label
 
@@ -663,8 +673,10 @@ class QAHandler:
             raw_data = {
                 "answers": unique_answers,
                 "answers_count": len(unique_answers),
-                "entity_metadata": entity_metadata
+                "question_entity_metadata": entity_metadata
             }
+
+            # print(f"[Answer Formatting] Raw data: \n```json\n{json.dumps(raw_data, indent=2, ensure_ascii=False)}\n```")
             
             # Get the prompt for natural language formatting
             prompt = self.prompt_manager.get_prompt(
@@ -680,7 +692,26 @@ class QAHandler:
                 if self.submode == "factual":
                     return "Based on my knowledge graph: " + response['content']
                 elif self.submode == "embedding":
-                    return "Based on my embeddings: " + response['content']
+                    # Get type id from answer
+                    if len(unique_answers) == 1:
+                        answer = unique_answers[0]
+                        P31 = WDT.P31
+                        # Get URI from label using lbl2ent mapping
+                        answer_uri = self.lbl2ent.get(answer)
+                        if answer_uri:
+                            answer_uri_ref = rdflib.URIRef(answer_uri)
+                            type_objects = list(self.kg_handler.graph.objects(answer_uri_ref, P31))
+                            if type_objects:
+                                # Get the first type entity URI
+                                type_uri = str(type_objects[0])
+                                # Extract Q-id from type_uri (e.g., "http://www.wikidata.org/entity/Q201658" -> "Q201658")
+                                q_id = type_uri.split("/")[-1] if "/" in type_uri else ""
+                                type_string = " (type: " + q_id + ")" if q_id else ""
+                            else:
+                                type_string = ""
+                            return "Based on my embeddings: " + response['content'] + type_string
+                    else:
+                        return "Based on my embeddings: " + response['content']
                 else:
                     return response["content"]
             else:

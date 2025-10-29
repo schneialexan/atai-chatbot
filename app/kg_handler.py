@@ -194,8 +194,9 @@ class LocalKnowledgeGraph:
                     if heading:
                         label = heading.text.strip()
             if label:
-                print(f"Found label in Wikidata: {label}")
-                return label
+                final_label = label.split("\n")[0]  # split label and id "label\n(type_id)"
+                print(f"Found label in Wikidata: {final_label} (ID: {id})")
+                return final_label
             else:
                 print(f"ERROR: No label found for ID: {id}")
                 return id

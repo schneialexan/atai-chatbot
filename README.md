@@ -1,5 +1,9 @@
 # Conversational Chatbot for ATAI 2025 @ UZH
 
+<div align="center">
+  <img src="logo.png" alt="ATAI Chatbot Logo" width="200"/>
+</div>
+
 A sophisticated conversational chatbot that can answer questions using a knowledge graph through multiple approaches: direct SPARQL queries, natural language question answering, movie recommendations, and multimedia retrieval.
 
 ## Overview
@@ -7,9 +11,9 @@ A sophisticated conversational chatbot that can answer questions using a knowled
 The chatbot supports four main modes of operation:
 
 1. **SPARQL Mode**: Direct querying of the RDF knowledge graph
-2. **QA Mode**: Natural language question answering with entity extraction and SPARQL generation
-   - **Factual Submode**: Traditional QA with entity extraction and SPARQL queries
-   - **Embedding Submode**: Embedding-based similarity search for entity matching
+2. **QA Mode**: Natural language question answering with entity extraction and answer generation
+   - **Factual Submode**: Traditional QA with entity extraction, SPARQL query execution, and direct knowledge graph lookups
+   - **Embedding Submode**: Embedding-based similarity search using entity and relation embeddings to find the most likely answer
 3. **Recommendation Mode**: Movie recommendations based on user preferences
 4. **Multimedia Mode**: Image retrieval and multimedia content handling
 
@@ -88,20 +92,42 @@ python main.py
 
 **Example questions:**
 - SPARQL: `SELECT * WHERE { ?s ?p ?o } LIMIT 5`
-- QA Factual: `Who directed The Godfather?`
+- QA Factual: `Who directed The Godfather?` or `Please answer this question with a factual approach: Who directed The Godfather?`
+- QA Embedding: `Please answer this question with an embedding approach: Who directed The Godfather?`
 - Recommendations: `Recommend movies like The Godfather`
 - Multimedia: `Show me a picture of The Godfather`
 
 ## Key Components
 
 ### QA Handler
-Sophisticated question answering with two submodes:
-- **Factual Submode**: Traditional QA with entity extraction and SPARQL queries
-  - **Entity Extraction**: NER-based entity identification with fuzzy matching fallback
-  - **Property Mapping**: Synonym-based property identification with fuzzy string matching  
-  - **SPARQL Generation**: Automatic query construction from natural language
-- **Embedding Submode**: Embedding-based search for answer to question
-- **Answer Formatting**: LLM-powered natural language response generation
+Sophisticated question answering with two distinct submodes:
+
+#### Entity Extraction Pipeline (Shared)
+Both submodes use the same sophisticated entity extraction pipeline:
+- **Difficult Entity Extraction**: Pattern-based extraction for complex entities (quoted titles, colons, special characters)
+- **NER Extraction**: spaCy-based named entity recognition
+- **Entity Matching**: Fuzzy matching with longest-match strategy and word boundary handling
+- **Property Mapping**: Synonym-based property identification with fuzzy string matching
+- **Brute Force Fallback**: Comprehensive fallback when initial extraction fails
+
+#### Factual Submode
+- **Approach**: Direct knowledge graph querying via SPARQL
+- **Process**: After entity and property extraction, executes SPARQL queries to retrieve exact answers
+- **Use Case**: Questions requiring precise, factual answers from the knowledge graph
+- **Output**: Direct extraction from RDF triples
+
+#### Embedding Submode
+- **Approach**: Embedding-based similarity search
+- **Process**: 
+  1. Retrieves entity embedding for the extracted entity
+  2. Retrieves relation embedding for the identified property
+  3. Computes `entity_embedding + relation_embedding` to form query embedding
+  4. Finds the most similar entity using pairwise distance comparison
+- **Use Case**: Questions where semantic similarity can help find related entities
+- **Output**: Most likely answer entity based on embedding similarity
+
+#### Answer Formatting
+Both submodes use LLM-powered natural language formatting to generate human-readable responses from the raw results.
 
 ### Local LLM Framework
 Modular framework supporting:
@@ -181,13 +207,19 @@ graph TD
     I --> M[Mode 4: Multimedia]
     I --> N[Mode 5: Auto]
     
+    K --> K1[Submode Detection]
+    K1 -->|factual| K2[Factual Submode]
+    K1 -->|embedding| K3[Embedding Submode]
+    K1 -->|default| K2
+    
     N --> O[Intent Classification]
     O --> P[Intent Detection]
     P --> Q[Route to Handler]
     Q --> R[Handler Response]
     
     J --> S[KG Handler]
-    K --> T[QA Handler]
+    K2 --> T[QA Handler]
+    K3 --> T
     L --> U[Recommender]
     M --> V[Multimedia Handler]
     
@@ -247,37 +279,61 @@ graph TD
 
 ```mermaid
 graph LR
-    A[User Question] --> B[NER Extraction]
-    A --> C[Difficult Entities]
+    A[User Question] --> B[Sanitize Question]
+    B --> C[Extract Entities]
     
-    B --> D[Collect Potential Entities]
-    C --> D
+    C --> D[NER Extraction]
+    C --> E[Difficult Entities Pattern Matching]
     
-    D --> E[Collect Potential Entity-Based Properties]
+    D --> F[Collect Potential Entities]
+    E --> F
     
-    E --> F[Candidates Found?]
+    F --> H[Identify Property for Entity]
+    H --> I[Collect Entity-Property Candidates]
     
-    F -->|No| G[Brute Force Fallback]
-    F -->|Yes| H[Select Best Entity]
+    I --> J{Candidates Found?}
     
-    G --> I[Entities Found?]
-    I -->|No| J[No Entities Error]
-    I -->|Yes| H
+    J -->|No| K[Brute Force Fallback]
+    J -->|Yes| L[Select Best Entity]
     
-    H --> K[Execute SPARQL Query]
-    K --> L[Format Answer with LLM]
-    L --> M[Natural Language Response]
+    K --> M[Brute Force Entity Extraction]
+    M --> O[Identify Properties]
+    O --> P{Candidates Found?}
+    
+    P -->|No| Q[No Entities Error]
+    P -->|Yes| L
+    
+    L --> R{Submode?}
+    
+    R -->|Factual| S[Factual: Execute SPARQL Query]
+    R -->|Embedding| W[Compute Query Embedding<br/>entity + relation]
+    
+    S --> U[Retrieve Answer from KG]
+    W --> X[Find Most Similar Entity<br/>Pairwise Distance]
+    
+    U --> Y[Format Answer with LLM]
+    X --> Y
+    Y --> Z[Natural Language Response]
     
     style A fill:#e1f5fe,color:#000000
-    style B fill:#fff3e0,color:#000000
+    style B fill:#fff9c4,color:#000000
     style C fill:#fff3e0,color:#000000
-    style D fill:#e8f5e8,color:#000000
-    style E fill:#f3e5f5,color:#000000
-    style F fill:#fce4ec,color:#000000
-    style I fill:#fce4ec,color:#000000
-    style H fill:#f3e5f5,color:#000000
-    style L fill:#e8f5e8,color:#000000
-    style J fill:#ffebee,color:#000000
+    style D fill:#fff3e0,color:#000000
+    style E fill:#fff3e0,color:#000000
+    style F fill:#e8f5e8,color:#000000
+    style H fill:#e8f5e8,color:#000000
+    style I fill:#f3e5f5,color:#000000
+    style J fill:#fce4ec,color:#000000
+    style K fill:#ffebee,color:#000000
+    style L fill:#f3e5f5,color:#000000
+    style R fill:#e1bee7,color:#000000
+    style S fill:#c8e6c9,color:#000000
+    style U fill:#c8e6c9,color:#000000
+    style W fill:#c8e6c9,color:#000000
+    style X fill:#c8e6c9,color:#000000
+    style Y fill:#e8f5e8,color:#000000
+    style Z fill:#b2dfdb,color:#000000
+    style Q fill:#ffcdd2,color:#000000
 ```
 
 ---

@@ -278,62 +278,47 @@ graph TD
 ### QA Handler Pipeline (qa_handler.py)
 
 ```mermaid
-graph LR
-    A[User Question] --> B[Sanitize Question]
-    B --> C[Extract Entities]
-    
-    C --> D[NER Extraction]
-    C --> E[Difficult Entities Pattern Matching]
-    
-    D --> F[Collect Potential Entities]
+flowchart LR
+    A["User Question"] --> B["Sanitize Question"]
+    B --> C["Extract Entities"]
+    C --> D["NER Extraction"] & E["Difficult Entities Pattern Matching"]
+    D --> F["Collect Potential Entities"]
     E --> F
-    
-    F --> H[Identify Property for Entity]
-    H --> I[Collect Entity-Property Candidates]
-    
-    I --> J{Candidates Found?}
-    
-    J -->|No| K[Brute Force Fallback]
-    J -->|Yes| L[Select Best Entity]
-    
-    K --> M[Brute Force Entity Extraction]
-    M --> O[Identify Properties]
-    O --> P{Candidates Found?}
-    
-    P -->|No| Q[No Entities Error]
-    P -->|Yes| L
-    
-    L --> R{Submode?}
-    
-    R -->|Factual| S[Factual: Execute SPARQL Query]
-    R -->|Embedding| W[Compute Query Embedding<br/>entity + relation]
-    
-    S --> U[Retrieve Answer from KG]
-    W --> X[Find Most Similar Entity<br/>Pairwise Distance]
-    
-    U --> Y[Format Answer with LLM]
+    I["Collect Entity-Property Candidates"] --> J{"Candidates Found?"}
+    J -- No --> K@{ label: "<span style=\"background-color:\">Brute Force Entity and Property Extraction Fallback</span>" }
+    J -- Yes --> L["Select Best Entity"]
+    P{"Candidates Found?"} -- No --> Q["No Entities Error"]
+    P -- Yes --> L
+    L --> R{"Submode?"}
+    R -- Factual --> S["Factual: Execute SPARQL Query"]
+    R -- Embedding --> W["Compute Query Embedding<br>entity + relation"]
+    S --> U["Retrieve Answer from KG"]
+    W --> X["Find Most Similar Entity<br>Pairwise Distance"]
+    U --> Y["Format Answer with LLM"]
     X --> Y
-    Y --> Z[Natural Language Response]
-    
+    Y --> Z["Natural Language Response"]
+    K --> P
+    F --> I
+
+    K@{ shape: rect}
     style A fill:#e1f5fe,color:#000000
     style B fill:#fff9c4,color:#000000
     style C fill:#fff3e0,color:#000000
     style D fill:#fff3e0,color:#000000
     style E fill:#fff3e0,color:#000000
     style F fill:#e8f5e8,color:#000000
-    style H fill:#e8f5e8,color:#000000
     style I fill:#f3e5f5,color:#000000
     style J fill:#fce4ec,color:#000000
     style K fill:#ffebee,color:#000000
     style L fill:#f3e5f5,color:#000000
+    style Q fill:#ffcdd2,color:#000000
     style R fill:#e1bee7,color:#000000
     style S fill:#c8e6c9,color:#000000
-    style U fill:#c8e6c9,color:#000000
     style W fill:#c8e6c9,color:#000000
+    style U fill:#c8e6c9,color:#000000
     style X fill:#c8e6c9,color:#000000
     style Y fill:#e8f5e8,color:#000000
     style Z fill:#b2dfdb,color:#000000
-    style Q fill:#ffcdd2,color:#000000
 ```
 
 ---

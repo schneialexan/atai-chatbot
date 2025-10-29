@@ -6,6 +6,7 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from rapidfuzz import fuzz, process
 from sentence_transformers import util
+from sklearn.metrics import pairwise_distances
 
 import rdflib
 from rdflib.namespace import RDFS
@@ -100,10 +101,10 @@ class QAHandler:
         if os.path.exists(self.embeddings_path):
             try:
                 print("[Embeddings] Loading entity embeddings...")
-                self.entity_embeddings = np.load(os.path.join(self.embeddings_path, "entity_embeds.npy"))
+                self.entity_emb = np.load(os.path.join(self.embeddings_path, "entity_embeds.npy"))
                 
                 print("[Embeddings] Loading relation embeddings...")
-                self.relation_embeddings = np.load(os.path.join(self.embeddings_path, "relation_embeds.npy"))
+                self.relation_emb = np.load(os.path.join(self.embeddings_path, "relation_embeds.npy"))
 
                 print("[Embeddings] Loading entity and relation IDs and preparing the embedding lookup dictionaries...")
                 # load the dictionaries
@@ -145,25 +146,7 @@ class QAHandler:
 
     def answer(self, question: str, submode: str = "factual") -> str:
         """Pipeline for answering a natural language question based on different approaches."""
-
-        if submode == "factual":
-            print(f"[QA Handler] Answering question with factual approach...")
-            return self._answer_factual(question)
-        elif submode == "embedding":
-            print(f"[QA Handler] Answering question with embedding approach...")
-            return self._answer_embedding(question)
-        else:
-            raise ValueError(f"Invalid submode: {submode}")
-
-    def _answer_embedding(self, question: str) -> str:
-        """Answers a question using the embedding model."""
-        # Sanitize the question
-        question = self._sanitize_question(question)
-        # TODO: Implement the embedding approach
-        return "I'm sorry, my embedding approach is not yet implemented."
-
-    def _answer_factual(self, question: str) -> str:
-        """Answers a factual question."""
+        self.submode = submode
         # Sanitize the question
         question = self._sanitize_question(question)
         
@@ -240,6 +223,35 @@ class QAHandler:
             best_entity_uri, best_entity_label, property_uri, property_label, score = self.select_best_entity(self._replace_synonyms_in_question(question), entity_property_candidates)
             print(f"[Final Entity Selection] Best match: {best_entity_label} --> {best_entity_uri}, property: {property_label} (score={score:.3f})")
         
+        if self.submode == "factual":
+            print(f"[QA Handler] Answering question with factual approach...")
+            return self._answer_factual(question, best_entity_uri, property_uri, best_entity_label)
+        elif self.submode == "embedding":
+            print(f"[QA Handler] Answering question with embedding approach...")
+            return self._answer_embedding(question, best_entity_uri, property_uri, best_entity_label)
+        else:
+            raise ValueError(f"Invalid submode: {self.submode}")
+
+    def _answer_embedding(self, question, best_entity_uri, property_uri, best_entity_label) -> str:
+        """Answers a question using the embedding model."""
+        # Sanitize the question
+        ent_emb = self.entity_emb[self.ent2id[best_entity_uri]]
+        property_uri = WDT[property_uri.split("/")[-1]]
+        rel_emb = self.relation_emb[self.rel2id[property_uri]]
+        lhs = ent_emb + rel_emb
+        distances = pairwise_distances(lhs.reshape(1, -1), self.entity_emb).reshape(-1)
+        most_likely = distances.argsort()[0]
+        result = {}
+        result["answerItem"] = self.id2ent[most_likely]
+        
+        final_entity_metadata = self.kg_handler.get_entity_metadata_local(best_entity_uri)
+        final_entity_metadata["entity_label"] = best_entity_label
+
+        # Format the final answer using an LLM with a prompt for natural language formatting from the prompt manager
+        return self.format_answer([result], question, entity_metadata=final_entity_metadata)
+
+    def _answer_factual(self, question, best_entity_uri, property_uri, best_entity_label) -> str:
+        """Answers a factual question."""
         # Execute the query
         if best_entity_uri and property_uri:
             results = self.execute_entity_property_query(best_entity_uri, property_uri)
@@ -608,7 +620,7 @@ class QAHandler:
             print(f"[Entity Property Query] Unknown error: {results}")
             return None
 
-    def format_answer(self, results: Dict[str, Any], question: str, entity_metadata: Dict) -> str:
+    def format_answer(self, results: List[Dict[str, Any]], question: str, entity_metadata: Dict) -> str:
         """Formats the answer for the user using LLM with prompt for natural language formatting."""
         if isinstance(results, dict) and "error" in results:
             print(f"ERROR: {results['error']}")
@@ -665,7 +677,12 @@ class QAHandler:
             response = self.llm_handler.generate_response(prompt)
             
             if response['success']:
-                return "Based on my knowledge graph: " + response['content']
+                if self.submode == "factual":
+                    return "Based on my knowledge graph: " + response['content']
+                elif self.submode == "embedding":
+                    return "Based on my embeddings: " + response['content']
+                else:
+                    return response["content"]
             else:
                 # Fallback to simple formatting if LLM fails
                 return "Based on my knowledge graph: " + ", ".join(unique_answers)

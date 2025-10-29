@@ -279,12 +279,9 @@ graph TD
 
 ```mermaid
 flowchart LR
-    A["User Question"] --> B["Sanitize Question"]
-    B --> C["Extract Entities"]
-    C --> D["NER Extraction"] & E["Difficult Entities Pattern Matching"]
-    D --> F["Collect Potential Entities"]
-    E --> F
-    I["Collect Entity-Property Candidates"] --> J{"Candidates Found?"}
+    C["Extract Entities"] --> D["NER Extraction"] & E["Difficult Entities Pattern Matching"]
+    E --> I["Collect Potential Entity-Property Candidates"]
+    I --> J{"Candidates Found?"}
     J -- No --> K@{ label: "<span style=\"background-color:\">Brute Force Entity and Property Extraction Fallback</span>" }
     J -- Yes --> L["Select Best Entity"]
     P{"Candidates Found?"} -- No --> Q["No Entities Error"]
@@ -298,15 +295,13 @@ flowchart LR
     X --> Y
     Y --> Z["Natural Language Response"]
     K --> P
-    F --> I
+    A["User Question"] --> C
+    D --> I
 
     K@{ shape: rect}
-    style A fill:#e1f5fe,color:#000000
-    style B fill:#fff9c4,color:#000000
     style C fill:#fff3e0,color:#000000
     style D fill:#fff3e0,color:#000000
     style E fill:#fff3e0,color:#000000
-    style F fill:#e8f5e8,color:#000000
     style I fill:#f3e5f5,color:#000000
     style J fill:#fce4ec,color:#000000
     style K fill:#ffebee,color:#000000
@@ -319,6 +314,7 @@ flowchart LR
     style X fill:#c8e6c9,color:#000000
     style Y fill:#e8f5e8,color:#000000
     style Z fill:#b2dfdb,color:#000000
+    style A fill:#e1f5fe,color:#000000
 ```
 
 ---

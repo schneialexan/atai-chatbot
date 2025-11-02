@@ -76,6 +76,7 @@ atai-chatbot/
 4. **Configure the system:**
    Edit `config.py` to set your preferred mode and settings.
 
+    To create the Pickled graph binary use the `dataset/create_pickle_binary.py` file. This may take 2 minutes, since the whole graph has to be loaded.
 ## Usage
 
 **Run the chatbot:**
@@ -86,8 +87,8 @@ python main.py
 **Available modes:**
 - `1`: SPARQL queries
 - `2`: Natural language QA (with factual/embedding submode detection)
-- `3`: Movie recommendations  
-- `4`: Multimedia retrieval
+- (`3`: Movie recommendations) 
+- (`4`: Multimedia retrieval)
 - `5`: Auto-detect mode (with submode detection)
 
 **Example questions:**

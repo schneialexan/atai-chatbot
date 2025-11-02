@@ -318,4 +318,36 @@ flowchart LR
     style A fill:#e1f5fe,color:#000000
 ```
 
+### LLM Usage in Factual QA (qa_handler.py)
+
+```mermaid
+graph LR
+    A["SPARQL Query Results<br>(Raw Data)"] --> B["Prepare Raw Data<br>(answers, metadata)"]
+    B --> C["PromptManager.get_prompt<br>('result_to_natural_language')"]
+    C --> D["LLM.generate_response<br>(formatted prompt)"]
+    D --> E["Natural Language Answer"]
+    
+    style A fill:#fff3e0,color:#000000
+    style B fill:#f3e5f5,color:#000000
+    style C fill:#e1bee7,color:#000000
+    style D fill:#c8e6c9,color:#000000
+    style E fill:#b2dfdb,color:#000000
+```
+
+### LLM Usage in Intent Classification (core.py)
+
+```mermaid
+graph LR
+    A["User Message"] --> B["PromptManager.get_prompt<br>('intent_classifier')"]
+    B --> C["LLM.generate_json_response<br>(formatted prompt)"]
+    C --> D["Extract Intent<br>(sparql_query, factual_question, etc.)"]
+    D --> E["Route to Handler<br>(KG, QA, Recommender, Multimedia)"]
+    
+    style A fill:#e1f5fe,color:#000000
+    style B fill:#e1bee7,color:#000000
+    style C fill:#c8e6c9,color:#000000
+    style D fill:#fff3e0,color:#000000
+    style E fill:#f3e5f5,color:#000000
+```
+
 ---

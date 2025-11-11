@@ -29,11 +29,10 @@ DDIS = rdflib.Namespace('http://ddis.ch/atai/')
 SCHEMA = rdflib.Namespace('http://schema.org/')
 
 class QAHandler:
-    def __init__(self, llm_handler: LlamaCppHandler, kg_handler: LocalKnowledgeGraph, embedding_handler: TransformerHandler, dataset_path: str = "dataset", embeddings_path: str = "dataset/store/embeddings"):
+    def __init__(self, llm_handler: LlamaCppHandler, kg_handler: LocalKnowledgeGraph, embedding_handler: TransformerHandler, embeddings_path: str = "dataset/store/embeddings"):
         self.llm_handler = llm_handler
         self.kg_handler = kg_handler
         self.embedding_handler = embedding_handler
-        self.dataset_path = dataset_path
         self.embeddings_path = embeddings_path
         self.prompt_manager = PromptManager()
         

@@ -2,8 +2,7 @@
 import os
 
 class MultimediaHandler:
-    def __init__(self, dataset_path: str):
-        self.dataset_path = dataset_path
+    def __init__(self):
         # preload mapping actor/movie -> image file or URL
         self.image_index = self._load_index()
 

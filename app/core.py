@@ -8,7 +8,7 @@ from .llm.prompt_manager import PromptManager
 from config import LLM_CONFIG
 
 class App:
-    def __init__(self, dataset_path: str = "dataset", embeddings_path: str = "dataset/store/embeddings", preload_strategy: str = "none", mode: int = None):
+    def __init__(self, dataset_path: str, embeddings_path: str = "dataset/store/embeddings", preload_strategy: str = "none", mode: int = None):
         self.dataset_path = dataset_path
         self.embeddings_path = embeddings_path
         self.preload_strategy = preload_strategy
@@ -91,7 +91,6 @@ class App:
                 llm_handler=self._get_llm_handler("factual_qa"),
                 kg_handler=self._get_kg_handler(),
                 embedding_handler=embedding_handler,
-                dataset_path=self.dataset_path,
                 embeddings_path=self.embeddings_path
             )
         return self._qa_model
@@ -101,15 +100,16 @@ class App:
         if self._recommender is None:
             self._recommender = MovieRecommender(
                 kg_handler=self._get_kg_handler(),
-                dataset_path=self.dataset_path,
-                embeddings_path=self.embeddings_path
+                embeddings_path=self.embeddings_path,
+                llm_handler=self._get_llm_handler("recommendation_formatter"),
+                prompt_manager=self.prompt_manager
             )
         return self._recommender
 
     def _get_multimedia(self):
         """Lazy initialization of multimedia handler"""
         if self._multimedia is None:
-            self._multimedia = MultimediaHandler(dataset_path=self.dataset_path)
+            self._multimedia = MultimediaHandler()
         return self._multimedia
 
     def get_answer(self, message: str, mode: int = 5):
@@ -144,6 +144,14 @@ class App:
             return self._get_qa_model().answer(message, submode="factual")
         elif "embedding" in message.lower():
             return self._get_qa_model().answer(message, submode="embedding")
+        # Check if the message is a recommendation question
+        elif "recommend" in message.lower() or "i like" in message.lower():
+            return self._get_recommender().recommend(message)
+        # Check if the message is a multimedia question
+        elif "picture" in message.lower() or "image" in message.lower() or "look like" in message.lower():
+            return self._get_multimedia().get_image(message)
+        else:
+            print("Using LLM to classify intent")
 
         # Use LLM to classify intent
         response = self.intent_classifier.generate_json_response(self.prompt_manager.get_prompt("intent_classifier", user_message=message))
@@ -176,11 +184,5 @@ class App:
             if low.startswith("select") or low.startswith("prefix") or "where {" in low:
                 print("SPARQL query detected by fallback")
                 return self._get_kg_handler().sparql_query(message)
-            if "recommend" in low or "i like" in low:
-                print("Recommendation question detected by fallback")
-                return self._get_recommender().recommend(message)
-            if "picture" in low or "image" in low or "look like" in low:
-                print("Multimedia question detected by fallback")
-                return self._get_multimedia().get_image(message)
-            print("Factual question detected by fallback")
+            print("Factual question as last resort fallback")
             return self._get_qa_model().answer(message, submode="factual")

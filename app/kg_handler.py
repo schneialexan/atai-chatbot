@@ -146,9 +146,7 @@ class LocalKnowledgeGraph:
         return parsed_results
 
     def get_label_for_uri(self, uri: str) -> str:
-        """Gets the label for a given URI
-        If no label is found in the knowledge graph, it looks up the label in Wikidata.
-        """
+        """Gets the label for a given URI"""
         query = f"""
             PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
             SELECT ?label WHERE {{
@@ -160,43 +158,7 @@ class LocalKnowledgeGraph:
         if isinstance(results, list) and len(results) > 0 and 'label' in results[0]:
             return results[0]['label']
         else:
-            print(f"ERROR: No label found for URI in our knowledge graph, looking up in Wikidata: {uri}")
             # Extract id
             id = str(uri.split('/')[-1])
-            # Add user agent
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-            # Try Wikidata API first
-            response = requests.get(
-                f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={id}&format=json&languages=en&props=labels",
-                headers=headers
-            )
-            label = None
-            if response.status_code == 200:
-                data = response.json()
-                entity = data.get('entities', {}).get(id)
-                if entity:
-                    # Try English label
-                    label = entity.get('labels', {}).get('en', {}).get('value')
-                    if not label:
-                        # Fallback: pick first available language
-                        if 'labels' in entity and entity['labels']:
-                            label = next(iter(entity['labels'].values()))['value']
-
-            # Fallback: scrape HTML if no label found
-            if not label:
-                page_url = f"https://www.wikidata.org/wiki/{id}"
-                response = requests.get(page_url, headers=headers)
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    heading = soup.find('h1', id='firstHeading')
-                    if heading:
-                        label = heading.text.strip()
-            if label:
-                final_label = label.split("\n")[0]  # split label and id "label\n(type_id)"
-                print(f"Found label in Wikidata: {final_label} (ID: {id})")
-                return final_label
-            else:
-                print(f"ERROR: No label found for ID: {id}")
-                return id
+            print(f"ERROR: No label found for URI in our knowledge graph: {uri} -> returning ID: {id}")
+            return id

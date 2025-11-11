@@ -14,7 +14,9 @@ The chatbot supports four main modes of operation:
 2. **QA Mode**: Natural language question answering with entity extraction and answer generation
    - **Factual Submode**: Traditional QA with entity extraction, SPARQL query execution, and direct knowledge graph lookups
    - **Embedding Submode**: Embedding-based similarity search using entity and relation embeddings to find the most likely answer
-3. **Recommendation Mode**: Movie recommendations based on user preferences
+3. **Recommendation Mode**: Hybrid movie recommendation system combining content-based (TF-IDF) and collaborative filtering approaches
+   - **Content-Based (TF-IDF)**: Recommends movies similar in content (genres, directors, themes) with hybrid scoring using common traits
+   - **Collaborative Filtering**: Recommends movies based on user rating patterns (movies liked by users with similar tastes)
 4. **Multimedia Mode**: Image retrieval and multimedia content handling
 
 The system uses a modular architecture with local LLM models, embedding-based entity matching, and intelligent fallback mechanisms for robust question answering.
@@ -87,15 +89,15 @@ python main.py
 **Available modes:**
 - `1`: SPARQL queries
 - `2`: Natural language QA (with factual/embedding submode detection)
-- (`3`: Movie recommendations) 
-- (`4`: Multimedia retrieval)
+- `3`: Movie recommendations (hybrid content-based + collaborative filtering)
+- `4`: Multimedia retrieval (WIP)
 - `5`: Auto-detect mode (with submode detection)
 
 **Example questions:**
 - SPARQL: `SELECT * WHERE { ?s ?p ?o } LIMIT 5`
 - QA Factual: `Who directed The Godfather?` or `Please answer this question with a factual approach: Who directed The Godfather?`
 - QA Embedding: `Please answer this question with an embedding approach: Who directed The Godfather?`
-- Recommendations: `Recommend movies like The Godfather`
+- Recommendations: `I like The Godfather, can you recommend something similar?` or `Recommend movies like The Matrix and Inception`
 - Multimedia: `Show me a picture of The Godfather`
 
 ## Key Components
@@ -129,6 +131,50 @@ Both submodes use the same sophisticated entity extraction pipeline:
 
 #### Answer Formatting
 Both submodes use LLM-powered natural language formatting to generate human-readable responses from the raw results.
+
+### Recommendation Handler
+Sophisticated hybrid movie recommendation system that combines two complementary approaches:
+
+#### Entity Extraction and Common Traits Inference
+The recommendation pipeline starts with the same entity extraction used in QA:
+- **Entity Extraction**: Uses NER and pattern matching to identify movie titles from user queries
+- **Entity Resolution**: Maps movie titles to Wikidata URIs using fuzzy matching and film class filtering
+- **Common Traits Inference**: Recursively explores the knowledge graph to find shared properties (directors, genres, actors, themes) across user's liked movies
+- **Trait Aggregation**: Identifies the most common traits with source tracking and count-based ranking
+
+#### Content-Based Recommendations (TF-IDF with Hybrid Scoring)
+- **Approach**: TF-IDF vectorization of movie metadata (genres, directors, year, types, descriptions)
+- **Initialization**: Metadata DataFrame and TF-IDF matrix are built during `MovieRecommender` initialization
+- **Process**:
+  1. Metadata DataFrame is built for all movies in the ratings dataset (with caching)
+  2. TF-IDF matrix is created from combined movie features ("soup")
+  3. Cosine similarity matrix is computed between all movies
+  4. **Hybrid Scoring**: Boosts recommendations that match common traits identified from user's preferences
+  5. Uses trait labels to create weighted query vectors for enhanced similarity matching
+- **Use Case**: Finding movies with similar content, themes, or creative elements
+- **Output**: Movies ranked by content similarity with trait-based boosting
+
+#### Collaborative Filtering Recommendations
+- **Approach**: Item-based collaborative filtering using user rating patterns
+- **Initialization**: User-item matrix and item-item similarity matrix are built during `MovieRecommender` initialization
+- **Process**:
+  1. User-item rating matrix is built from ratings dataset
+  2. Item-item similarity is computed based on how users rate movies
+  3. Finds movies similar to user's liked movies based on rating patterns
+  4. Recommends movies that users with similar tastes have rated highly
+- **Use Case**: Discovering movies through collective user preferences and rating patterns
+- **Output**: Movies ranked by collaborative similarity scores
+
+#### Recommendation Formatting
+- **LLM-Powered Formatting**: Uses dedicated prompt to format both recommendation types into natural language
+- **Structured Output**: Presents content-based and collaborative filtering recommendations separately with clear explanations
+- **Fallback**: Simple text formatting if LLM is unavailable
+- **Response Format**: Explains the difference between the two recommendation types and lists movies from both approaches
+
+#### Initialization
+- **Model Building**: Metadata DataFrame, TF-IDF matrix, and collaborative filtering models are built during `MovieRecommender` object initialization
+- **Caching**: Metadata fetching uses caching for performance - first initialization may take time, but cached data speeds up subsequent initializations
+- **Performance**: All models are ready immediately after initialization, making recommendation calls fast and consistent
 
 ### Local LLM Framework
 Modular framework supporting:
@@ -254,8 +300,7 @@ graph TD
     
     K[Entity Lookup] --> L[get_label_for_uri]
     L --> M[Local Graph Search]
-    M --> N[Wikidata Fallback]
-    N --> O[Label Response]
+    M --> O[Label Response]
     
     P[Property Discovery] --> Q[get_entity_property_labels]
     Q --> R[Query Entity Properties]
@@ -348,6 +393,63 @@ graph LR
     style C fill:#c8e6c9,color:#000000
     style D fill:#fff3e0,color:#000000
     style E fill:#f3e5f5,color:#000000
+```
+
+### Recommendation Handler Pipeline (recommender.py)
+
+```mermaid
+flowchart LR
+    A["User Query"] --> B["Entity Extraction<br>& Resolution"]
+    B --> C["Infer Common Traits<br>(KG exploration)"]
+    
+    C --> D1["Lookup Movie URIs<br>in Metadata DF"]
+    D1 --> D2["Extract Features<br>(genres, directors,<br>year, types, desc)"]
+    D2 --> D3["Compute Cosine<br>Similarity"]
+    C --> D4["Build Trait Query<br>Vector"]
+    D4 --> D5["Trait-Based<br>Score Boosting"]
+    D3 --> D5
+    D5 --> D["TF-IDF Recommendations"]
+    
+    C --> E["CF Recommendations<br>(Rating Patterns)"]
+    D --> F["Format with LLM"]
+    E --> F
+    F --> G["Natural Language<br>Response"]
+    
+    style A fill:#e1f5fe,color:#000000
+    style B fill:#fff3e0,color:#000000
+    style C fill:#f3e5f5,color:#000000
+    style D1 fill:#e1bee7,color:#000000
+    style D2 fill:#e1bee7,color:#000000
+    style D3 fill:#e1bee7,color:#000000
+    style D4 fill:#e1bee7,color:#000000
+    style D5 fill:#e1bee7,color:#000000
+    style D fill:#e1bee7,color:#000000
+    style E fill:#e1bee7,color:#000000
+    style F fill:#e8f5e8,color:#000000
+    style G fill:#b2dfdb,color:#000000
+```
+
+### LLM Usage in Recommendations (recommender.py)
+
+```mermaid
+graph LR
+    A["TF-IDF Recommendations<br>(DataFrame)"] --> C["Prepare Structured Data<br>(JSON format)"]
+    B["CF Recommendations<br>(DataFrame)"] --> C
+    D["Common Traits<br>(List)"] --> C
+    E["User Query"] --> C
+    
+    C --> F["PromptManager.get_prompt<br>('recommendation_response_formatter')"]
+    F --> G["LLM.generate_response<br>(formatted prompt)"]
+    G --> H["Natural Language Response<br>(Both recommendation types explained)"]
+    
+    style A fill:#e1bee7,color:#000000
+    style B fill:#e1bee7,color:#000000
+    style D fill:#f3e5f5,color:#000000
+    style E fill:#e1f5fe,color:#000000
+    style C fill:#f3e5f5,color:#000000
+    style F fill:#e1bee7,color:#000000
+    style G fill:#c8e6c9,color:#000000
+    style H fill:#b2dfdb,color:#000000
 ```
 
 ---

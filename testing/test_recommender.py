@@ -31,7 +31,7 @@ class TestMovieRecommendations(unittest.TestCase):
         print(f"{self.id()}: {t:.4f}s")
     
     def test_recommender_questions(self):
-        """Test factual questions."""
+        """Test recommender questions."""
         test_cases = [
             {
                 "question": "Given that I like The Lion King, Pocahontas, and Beauty and the Beast, can you recommend some movies?",

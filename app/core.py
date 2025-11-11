@@ -99,7 +99,11 @@ class App:
     def _get_recommender(self):
         """Lazy initialization of recommender"""
         if self._recommender is None:
-            self._recommender = MovieRecommender(dataset_path=self.dataset_path)
+            self._recommender = MovieRecommender(
+                kg_handler=self._get_kg_handler(),
+                dataset_path=self.dataset_path,
+                embeddings_path=self.embeddings_path
+            )
         return self._recommender
 
     def _get_multimedia(self):

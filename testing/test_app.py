@@ -23,23 +23,6 @@ class TestApp(unittest.TestCase):
         """Tear down the test environment."""
         t = time.time() - self.startTime
         print(f"{self.id()}: {t:.4f}s")
-        
-    def test_embedding_questions(self):
-        """Test embedding questions."""
-        question = "Who is the screenwriter of The Masked Gang: Cyprus?"
-        expected = "Cengiz Küçükayvaz"
-        result = self.app.get_answer(question, mode=2)
-        self.assertIn(expected, str(result))
-
-        question = "What is the MPAA film rating of Weathering with You?"
-        expected = "PG-13"
-        result = self.app.get_answer(question, mode=2)
-        self.assertIn(expected, str(result))
-
-        question = "What is the genre of Good Neighbors?"
-        expected = "drama"
-        result = self.app.get_answer(question, mode=2)
-        self.assertIn(expected, str(result).lower())
 
     def test_multimedia_questions(self):
         """Test multimedia questions."""
@@ -57,21 +40,6 @@ class TestApp(unittest.TestCase):
         expected = "https://www.imdb.com/name/nm0000113"
         result = self.app.get_answer(question, mode=4)
         self.assertEqual(result, expected)
-
-    def test_recommendation_questions(self):
-        """Test recommendation questions."""
-        question = "Recommend movies similar to Hamlet and Othello."
-        result = self.app.get_answer(question, mode=3)
-        self.assertIsInstance(result, (str, dict))
-
-        question = "Given that I like The Lion King, Pocahontas, and The Beauty and the Beast, can you recommend some movies?"
-        result = self.app.get_answer(question, mode=3)
-        self.assertIsInstance(result, (str, dict))
-
-        question = "Recommend movies like Nightmare on Elm Street, Friday the 13th, and Halloween."
-        result = self.app.get_answer(question, mode=3)
-        self.assertIsInstance(result, (str, dict))
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -827,7 +827,6 @@ class MovieRecommender:
                         trait_score = trait_similarities[movie_idx]
                         boosted_score = base_score * (1 + trait_weight * trait_score)
                         sim_scores[idx] = (movie_idx, boosted_score)
-                        print(f"[TF-IDF Recommendations] Boosted score for movie {movie_idx}: {boosted_score}")
                 except Exception as e:
                     print(f"[TF-IDF Recommendations] Warning: Could not apply trait-based boosting: {e}")
         

@@ -18,7 +18,7 @@ LLM_CONFIG = {
         "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
         "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
         "n_gpu_layers": 0,  # -1 to offload all layers to GPU
-        "n_ctx": 4096,  # Input context window size
+        "n_ctx": 8192,  # Input context window size
         "auto_load": True
     },
     "recommendation_formatter": {
@@ -27,7 +27,7 @@ LLM_CONFIG = {
         "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
         "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
         "n_gpu_layers": 0,  # -1 to offload all layers to GPU
-        "n_ctx": 4096,  # Input context window size
+        "n_ctx": 8192,  # Input context window size
         "auto_load": True
     },
     "embedding": {
@@ -42,7 +42,7 @@ LLM_CONFIG = {
         "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
         "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
         "n_gpu_layers": 0,  # -1 to offload all layers to GPU
-        "n_ctx": 2048,  # Input context window size
+        "n_ctx": 8192,  # Input context window size
         "auto_load": True
     }
 }

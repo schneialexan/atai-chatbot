@@ -621,10 +621,20 @@ class MovieRecommender:
         print("[Collaborative Filtering] Creating user-item matrix...")
         self.user_item_matrix = self.user_ratings_df.pivot_table(
             index='user_id', 
-            columns='item_id', 
-            values='rating',
-            fill_value=0
+            columns='item_id',
+            values='rating'
         )
+        
+        # Fill missing values with item ratings from item_ratings.csv
+        # Create a mapping from item_id to rating
+        item_rating_map = dict(zip(self.item_ratings_df['item_id'], self.item_ratings_df['rating']))
+        mean_rating = self.item_ratings_df['rating'].mean()
+        # Create a Series with item ratings for columns that exist in the matrix
+        fill_values = pd.Series([item_rating_map.get(item_id, mean_rating) for item_id in self.user_item_matrix.columns], 
+                                index=self.user_item_matrix.columns)
+        
+        # Fill missing values with the corresponding item rating
+        self.user_item_matrix = self.user_item_matrix.fillna(fill_values)
         
         print(f"[Collaborative Filtering] User-item matrix shape: {self.user_item_matrix.shape}")
         

@@ -158,7 +158,7 @@ The recommendation pipeline starts with the same entity extraction used in QA:
 - **Approach**: Item-based collaborative filtering using user rating patterns
 - **Initialization**: User-item matrix and item-item similarity matrix are built during `MovieRecommender` initialization
 - **Process**:
-  1. User-item rating matrix is built from ratings dataset
+  1. User-item rating matrix is built from ratings dataset, with missing values (unrated items) filled using average item ratings from `item_ratings.csv` instead of zeros. If an item is not found in `item_ratings.csv`, the global mean rating across all items is used as a fallback
   2. Item-item similarity is computed based on how users rate movies
   3. Finds movies similar to user's liked movies based on rating patterns
   4. Recommends movies that users with similar tastes have rated highly

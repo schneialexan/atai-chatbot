@@ -503,7 +503,6 @@ flowchart LR
     style A fill:#e1f5fe,color:#000000
     style B1 fill:#fff3e0,color:#000000
     style B2 fill:#fff3e0,color:#000000
-    style B3 fill:#fff3e0,color:#000000
     style C fill:#f3e5f5,color:#000000
     style D1 fill:#e1bee7,color:#000000
     style D2 fill:#e1bee7,color:#000000

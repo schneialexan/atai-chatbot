@@ -484,9 +484,8 @@ graph LR
 ```mermaid
 flowchart LR
     A["User Query"] --> B1["Entity Extraction<br>(EntityExtractor)"]
-    B1 --> B2["Resolve to Candidates<br>(resolve_entity_to_candidates)"]
-    B2 --> B3["Filter to Films<br>(filter_candidates)"]
-    B3 --> C["Infer Common Traits<br>(KG exploration)"]
+    B1 --> B2["Filter to Films<br>(filter_candidates)"]
+    B2 --> C["Infer Common Traits<br>(KG exploration)"]
     
     C --> D1["Lookup Movie URIs<br>in Metadata DF"]
     D1 --> D2["Extract Features<br>(genres, directors,<br>year, types, desc)"]

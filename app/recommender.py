@@ -19,6 +19,7 @@ from rdflib.namespace import RDFS
 from collections import defaultdict
 
 from app.kg_handler import LocalKnowledgeGraph
+from app.entity_extractor import EntityExtractor
 
 # Optional progress bar
 try:
@@ -98,16 +99,21 @@ class MovieRecommender:
         self.all_labels = list(self.lbl2ent.keys())
         self.lbl2uri = self._load_label_to_uri()
         
+        # Initialize EntityExtractor with embeddings lookup dictionaries
+        # Property names not needed for recommender (pass empty list)
+        self.entity_extractor = EntityExtractor(
+            kg_handler=self.kg_handler,
+            nlp=self.nlp,
+            property_names=[],  # Not needed for recommender
+            ent2lbl=self.ent2lbl if hasattr(self, 'ent2lbl') else None,
+            all_entity_labels=self.all_entity_labels if hasattr(self, 'all_entity_labels') else None
+        )
+        
         # Initialize TF-IDF and CF components
-        print("Initializing recommendation models...")
         try:
-            print("Building metadata DataFrame...")
             self._build_metadata_dataframe(use_cache=True, random_seed=42)
-            print("Building TF-IDF similarity matrix...")
             self._build_similarity_matrix()
-            print("Building collaborative filtering model...")
             self._build_collaborative_filtering()
-            print("Recommendation models initialized successfully!")
         except Exception as e:
             print(f"[Error] initializing recommendation models: {e}")
             raise ValueError(f"Error initializing recommendation models.")
@@ -419,13 +425,10 @@ class MovieRecommender:
         """Loads the embeddings and the lookup dictionaries."""
         if os.path.exists(self.embeddings_path):
             try:
-                print("[Embeddings] Loading entity embeddings...")
                 self.entity_emb = np.load(os.path.join(self.embeddings_path, "entity_embeds.npy"))
                 
-                print("[Embeddings] Loading relation embeddings...")
                 self.relation_emb = np.load(os.path.join(self.embeddings_path, "relation_embeds.npy"))
 
-                print("[Embeddings] Loading entity and relation IDs and preparing the embedding lookup dictionaries...")
                 # load the dictionaries
                 with open(os.path.join(self.embeddings_path, "entity_ids.del")) as f:
                     self.ent2id = {rdflib.URIRef(ent): int(idx) for idx, ent in csv.reader(f, delimiter='\t')}
@@ -453,42 +456,42 @@ class MovieRecommender:
 
         else:
             raise FileNotFoundError(f"[ERROR] Embeddings directory not found: {self.embeddings_path}. Please run the embedding script to generate the embeddings.")
-
-    def get_entities(self, question):
-        doc = self.nlp(question)
-        return [{"text": ent.text, "label": ent.label_} for ent in doc.ents]
     
-    def resolve_entity_to_film(self, key):
+    def resolve_entity_to_candidates(self, key):
         """
-        Find best matching film entity for a key.
-        Uses fuzzy matching of labels + instance-of film classes.
+        Find all candidate entity URIs for a given label/key.
+        Uses exact and fuzzy matching of labels to find all possible entity URIs.
+        Returns a list of candidate URIs (can be empty).
         """
         # exact match first
         candidates = []
         if key in self.lbl2ent:
-            candidates.append(self.lbl2ent[key])
+            candidates.extend(self.lbl2ent[key])  # extend with list contents
         # fuzzy match
         match = difflib.get_close_matches(key, self.all_labels, n=1, cutoff=0.7)
-        candidates.extend(self.lbl2ent[m] for m in match)
-
+        for m in match:
+            candidates.extend(self.lbl2ent[m])  # extend with each list's contents
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_candidates = []
         for c in candidates:
-            types = set(self.kg_handler.graph.objects(c, WDT.P31))
-            # check if it is a film or anything similar
-            if types & FILM_CLASSES:
-                return c
-            else:
-                try:
-                    return self.lbl2uri.get(self.ent2lbl[c])
-                except:
-                    continue
-        # final fallback: return first candidate anyway
-        return candidates[0] if candidates else None
+            if c not in seen:
+                seen.add(c)
+                unique_candidates.append(c)
+        
+        return unique_candidates
     
     def resolve_entities(self, entities):
+        """
+        Resolve all entities to their candidate URIs.
+        Returns a list of lists: [[uri1, uri2], [uri3], ...] where each inner list
+        contains all candidate URIs for one entity.
+        """
         liked_uris = []
         for e in entities:
-            film_uri = self.resolve_entity_to_film(e["text"])
-            liked_uris.append(film_uri)
+            candidate_uris = self.resolve_entity_to_candidates(e["text"])
+            liked_uris.append(candidate_uris)  # append list of candidates
         return liked_uris
     
     def recursively_collect_traits(self, uri, visited=None, depth=0):
@@ -591,7 +594,7 @@ class MovieRecommender:
         return selected
     
     def print_entities(self, entities, candidates, selected_candidates):
-        print("Resolved Entities:")
+        print(f"\n{3*'-'}\nResolved Entities:")
         for i, cand in enumerate(candidates):
             sel_cand = selected_candidates[i]
             entity_name = entities[i]["text"]
@@ -601,6 +604,7 @@ class MovieRecommender:
                 type_label = self.ent2lbl.get(get_type, "Unknown")
                 selected = "OK" if uri in sel_cand else "X"
                 print("    {:<50} {:<30} {:<6}".format(str(uri), type_label, selected))
+        print(f"{3*'-'}\n")
     
     def _build_collaborative_filtering(self):
         """
@@ -871,7 +875,7 @@ class MovieRecommender:
         - Only show Q-IDs from URIs.
         - Wrap long source lists across multiple lines.
         """
-        print("\nTop Common Traits:")
+        print(f"\n{3*'-'}\nTop Common Traits:")
         if not common_traits:
             print("  (none found)")
             return
@@ -899,6 +903,7 @@ class MovieRecommender:
             # Print remaining lines of sources indented
             for chunk in chunks[1:]:
                 print("{:<25} {:<45} {:<8} {}".format("", "", "", chunk))
+        print(f"{3*'-'}\n")
 
     def format_recommendations(self, tfidf_recommendations: pd.DataFrame, cf_recommendations: pd.DataFrame,
                               user_query: str, common_traits: List[Dict]) -> str:
@@ -991,9 +996,15 @@ class MovieRecommender:
         """
         Returns a recommendation for a movie based on the user's query.
         """
-        # 1. get the entities from the message/question via ner
-        entities = self.get_entities(message)
+        # 1. get the entities from the message/question based on different approaches
+        # TODO: Check if fuzzy matching is beneficial for the recommender
+        entities = self.entity_extractor.extract_entities(message, use_fuzzy_match=True)
         print(f"[Movie Recommender] Entities: {entities}")
+
+        if not entities:
+            entities = self.entity_extractor.brute_force_extract_entities(message)
+            entities = entities[:3]
+            print(f"[Movie Recommender] Brute force entities: {entities}")
         
         if not entities:
             return "I couldn't identify any movies in your message. Please mention specific movie titles you like."

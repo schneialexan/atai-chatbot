@@ -18,9 +18,9 @@ from app.llm.llama_cpp_handler import LlamaCppHandler
 from app.llm.transformer_handler import TransformerHandler
 from app.llm.prompt_manager import PromptManager
 from app.kg_handler import LocalKnowledgeGraph
+from app.entity_extractor import EntityExtractor
 
 CACHED_PROPERTIES_FILE = "app/cached_properties.json"
-CACHED_ENTITIES_FILE = "app/cached_entities.json"
 
 # define some prefixes
 WD = rdflib.Namespace('http://www.wikidata.org/entity/')
@@ -39,9 +39,17 @@ class QAHandler:
         self.properties = self._get_properties()
         self.property_names = self._get_property_names()
         self.property_synonym_map = self._load_property_synonyms()
-        self.entities = self._get_entities()
-        self._load_embeddings_and_lookup_dictionaries()
         self.nlp = spacy.load("en_core_web_trf")
+        self._load_embeddings_and_lookup_dictionaries()
+        
+        # Initialize EntityExtractor with embeddings lookup dictionaries if available
+        self.entity_extractor = EntityExtractor(
+            kg_handler=self.kg_handler,
+            nlp=self.nlp,
+            property_names=self.property_names,
+            ent2lbl=self.ent2lbl if hasattr(self, 'ent2lbl') else None,
+            all_entity_labels=self.all_entity_labels if hasattr(self, 'all_entity_labels') else None
+        )
 
     def _get_properties(self) -> Dict[str, str]:
         """Gets all properties from the knowledge graph and their labels, with caching."""
@@ -66,23 +74,6 @@ class QAHandler:
         """Gets all property names from the knowledge graph."""
         return list(self.properties.keys())
 
-    def _get_entities(self) -> List[str]:
-        """Gets all entity labels from the knowledge graph, with caching.
-        Returns a list of entity labels for efficient entity extraction."""
-        if os.path.exists(CACHED_ENTITIES_FILE):
-            with open(CACHED_ENTITIES_FILE, "r", encoding="utf-8") as f:
-                print(f"Loading cached entity labels from {CACHED_ENTITIES_FILE}")
-                return json.load(f)
-
-        print("Querying knowledge graph for all entity labels...")
-        entity_labels = self.kg_handler.get_all_entities()
-        print(f"Found {len(entity_labels)} unique entity labels")
-        
-        with open(CACHED_ENTITIES_FILE, "w", encoding="utf-8") as f:
-            json.dump(entity_labels, f, indent=1, ensure_ascii=False)
-        print(f"Cached entity labels saved to {CACHED_ENTITIES_FILE}")
-        return entity_labels
-
     def _load_property_synonyms(self) -> Dict[str, List[str]]:
         """Loads property synonyms from the JSON file and returns the synonym mapping."""
         synonym_data = {}
@@ -99,13 +90,10 @@ class QAHandler:
         """Loads the embeddings and the lookup dictionaries."""
         if os.path.exists(self.embeddings_path):
             try:
-                print("[Embeddings] Loading entity embeddings...")
                 self.entity_emb = np.load(os.path.join(self.embeddings_path, "entity_embeds.npy"))
                 
-                print("[Embeddings] Loading relation embeddings...")
                 self.relation_emb = np.load(os.path.join(self.embeddings_path, "relation_embeds.npy"))
 
-                print("[Embeddings] Loading entity and relation IDs and preparing the embedding lookup dictionaries...")
                 # load the dictionaries
                 with open(os.path.join(self.embeddings_path, "entity_ids.del")) as f:
                     self.ent2id = {rdflib.URIRef(ent): int(idx) for idx, ent in csv.reader(f, delimiter='\t')}
@@ -169,21 +157,8 @@ class QAHandler:
 
     def extract_entities_and_properties(self, question: str):
         """Extracts entities and properties from the question."""
-        # Try multiple entity extraction strategies
-        _potential_entities = []
-        
-        # 1. Difficult entities extraction
-        difficult_entities = self.extract_difficult_entities(question)
-        for entity in difficult_entities:
-            _potential_entities.append({"text": entity, "label": "WORK_OF_ART"})
-        
-        # 2. NER extraction
-        ner_entities = self.ner_entity_extraction(question)
-        if ner_entities:
-            # Only add NER entities if they don't overlap with difficult entities
-            for ner_ent in ner_entities:
-                if not any(ner_ent['text'] in entity for entity in difficult_entities):
-                    _potential_entities.append(ner_ent)
+        # Use EntityExtractor for entity extraction
+        _potential_entities = self.entity_extractor.extract_entities(question, use_fuzzy_match=False)
         
         # Will store the entity property candidates from ner or be empty if the fast approach fails -> fallback to brute force
         entity_property_candidates = []
@@ -191,7 +166,7 @@ class QAHandler:
         if _potential_entities:
             for _potential_entity in _potential_entities[:NUM_OF_POTENTIAL_ENTITIES_TO_CONSIDER]:  # Loop through the first 2 entities
                 # Find entites by label - prioritize difficult entities
-                top_k_entities = self.find_entities_by_label(_potential_entity['text'])
+                top_k_entities = self.entity_extractor.find_entities_by_label(_potential_entity['text'])
                 
                 if top_k_entities:
                     # Identify the property for EACH entity
@@ -206,7 +181,8 @@ class QAHandler:
             # Brute force fallback as a last resort
             print(f"[Final Entity Selection] No candidates found, brute force fallback...")
             # TODO: Inform user that this might take a while...
-            brute_force_entities = self.brute_force_extract_entities(question)
+            # Use EntityExtractor's brute force method
+            brute_force_entities = self.entity_extractor.brute_force_extract_entities(question)
             if not brute_force_entities:
                 # TODO: Embedding fallback?
                 return None, None, None, None
@@ -273,82 +249,6 @@ class QAHandler:
         # Format the final answer using an LLM with a prompt for natural language formatting from the prompt manager
         return self.format_answer(results, question, entity_metadata=final_entity_metadata)
 
-    def ner_entity_extraction(self, question: str) -> List[str]:
-        """Extracts entities from the question using NER."""
-        doc = self.nlp(question)
-        entities = [{"text": ent.text, "label": ent.label_} for ent in doc.ents]
-        print(f"[NER] Entities detected: {entities}")
-        return entities
-
-    def extract_difficult_entities(self, question: str) -> List[str]:
-        """Extract difficult entities using pattern matching."""
-        entities = []
-        
-        # Common patterns based on cached entities - targeting difficult edge cases
-        patterns = [
-            # Entities wrapped in quotes (highest priority)
-            r"'([^']+)'",  # Single quotes
-            r'"([^"]+)"',  # Double quotes
-            r"‘([^’]+)’",  # Single curly quotes
-            r"“([^”]+)”",  # Double curly quotes
-            
-            # Star Wars patterns with dashes and colons
-            r'Star Wars: Episode [IVX]+[^?]*',
-            r'Star Wars Episode [IVX]+[^?]*',
-            
-            # X-Men patterns with colons and dashes
-            r'X-Men Beginnings[^?]*',
-            r'X-Men: [A-Z][a-z]+[^?]*',
-            r'X-Men Origins: [A-Z][a-z]+[^?]*',
-            
-            # Complex titles with colons and em-dashes
-            r'The Hobbit: [A-Z][a-z]+[^?]*',
-            r'Mission: Impossible[^?]*',
-            r'Captain America: [A-Z][a-z]+[^?]*',
-            r'John Wick: [A-Z][a-z]+[^?]*',
-            r'Sweeney Todd: [A-Z][a-z]+[^?]*',
-            
-            # Titles with multiple special characters
-            r'[A-Z][a-z]+: [A-Z][a-z]+ – [A-Z][a-z]+[^?]*',
-            r'[A-Z][a-z]+ [A-Z][a-z]+: [A-Z][a-z]+ – [A-Z][a-z]+[^?]*',
-            
-            # Specific difficult cases from cache
-            r'The Chronicles of Narnia: [A-Z][a-z]+[^?]*',
-            r'The Lord of the Rings: [A-Z][a-z]+[^?]*',
-            r'The X-Files: [A-Z][a-z]+[^?]*',
-            r'Night at the Museum: [A-Z][a-z]+[^?]*',
-            r'Ice Age: [A-Z][a-z]+[^?]*',
-            r'Hellraiser [IVX]+: [A-Z][a-z]+[^?]*',
-            
-            # Movies with numbers and special characters
-            r'[0-9]+: [A-Z][a-z]+[^?]*',
-            r'[A-Z][a-z]+ [0-9]+: [A-Z][a-z]+[^?]*',
-            
-            # Complex titles with multiple colons
-            r'[A-Z][a-z]+: [A-Z][a-z]+: [A-Z][a-z]+[^?]*'
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, question, re.IGNORECASE)
-            for match in matches:
-                entities.append(match.strip())
-        
-        print(f"[Difficult Entity Extraction] Found difficult entities: {entities}")
-        return entities
-
-    def find_entities_by_label(self, label: str, top_k: int = 5, get_close_matches_n: int = 1, get_close_matches_cutoff: float = 0.6) -> List[Tuple[str, str]]:
-        """Finds the closest matching entity label and returns the top_k matching entity URIs.
-        Returns the top_k matching entity URIs: [(entity_uri, entity_label), ...]"""
-        
-        match = difflib.get_close_matches(label, self.all_entity_labels, n=get_close_matches_n, cutoff=get_close_matches_cutoff)
-        if not match:
-            return []
-        # return the top_k matching entity URI(s)
-        best_label = match[0]
-        candidates = [(ent, self.ent2lbl[ent]) for ent, lbl in self.ent2lbl.items() if lbl == best_label]
-        print(f"[Entity Label Matching] Found {len(candidates)} candidates for '{label}': {candidates[:top_k]}")
-        return candidates[:top_k]
-
     def _compute_score(self, question: str, property: str, metadata: Dict[str, List[str]]) -> float:
         """Compute compatibility between question and entity metadata."""
         score = 0.0
@@ -390,107 +290,6 @@ class QAHandler:
 
         best = max(scores, key=lambda x: x[4])
         return best
-
-    def _find_entity_with_word_boundaries(self, question: str, entity_label: str) -> Optional[str]:
-        """
-        Find entity in question using flexible matching for complex entities.
-        Supports multi-word entities with punctuation, colons, and special characters.
-        
-        Args:
-            question: User's question (original case preserved)
-            entity_label: Entity label to find
-            
-        Returns:
-            Matched entity string if found, None otherwise
-        """
-        import re
-        
-        # For simple single-word entities: use \b boundaries
-        if ' ' not in entity_label and not any(char in entity_label for char in [':', '–', '-', '(', ')']):
-            pattern = re.compile(r'\b' + re.escape(entity_label) + r'\b', re.IGNORECASE)
-            match = pattern.search(question)
-            if match:
-                return match.group()
-        
-        # For complex entities (with punctuation, colons, etc.): use flexible matching
-        else:
-            if entity_label in question:
-                # Find the position and extract the original case version
-                start_pos = question.find(entity_label)
-                if start_pos != -1:
-                    return question[start_pos:start_pos + len(entity_label)]
-            
-            # Second try: flexible regex pattern for punctuation variations
-            # Create a flexible pattern that handles punctuation variations
-            escaped_label = re.escape(entity_label)
-            
-            # Replace escaped punctuation with flexible patterns
-            # Handle common punctuation variations
-            flexible_pattern = escaped_label
-            flexible_pattern = flexible_pattern.replace(r'\:', r'[:–-]?')  # Colon, em-dash, or hyphen
-            flexible_pattern = flexible_pattern.replace(r'–', r'[–-]')  # Em-dash or hyphen
-            flexible_pattern = flexible_pattern.replace(r'\-', r'[–-]')  # Hyphen variations
-            
-            # Use word boundaries for the start and end, but allow punctuation in between
-            pattern = re.compile(r'\b' + flexible_pattern + r'\b', re.IGNORECASE)
-            match = pattern.search(question)
-            if match:
-                return match.group()
-        
-        return None
-
-    def _select_entities_by_longest_match(self, potential_entities: List[Dict], question: str) -> List[str]:
-        """
-        Select entities using longest match strategy - prioritize entities with longer matches.
-        Also implements safety check for exact case matches.
-        """
-        if not potential_entities:
-            print("[Entity Selection] No potential entities to select from")
-            return []
-        
-        # Safety check: If we have both lowercase and proper case versions, prefer the one that exactly matches the question
-        if len(potential_entities) == 2:
-            entity1, entity2 = potential_entities[0], potential_entities[1]
-            if entity1.lower() == entity2.lower() and entity1 != entity2:
-                # Check which one appears exactly in the original question
-                if entity1 in question and entity2 not in question:
-                    print(f"[Entity Selection] Safety check: preferring exact case match '{entity1}' over '{entity2}'")
-                    return [entity1]
-                elif entity2 in question and entity1 not in question:
-                    print(f"[Entity Selection] Safety check: preferring exact case match '{entity2}' over '{entity1}'")
-                    return [entity2]
-        
-        # Sort entities by match length (longest first)        
-        sorted_entities = sorted(potential_entities, key=len, reverse=True)
-        return sorted_entities
-
-    def brute_force_extract_entities(self, question: str) -> List[str]:
-        """Last resort entity extraction method.
-        
-        This method is used as a last resort when the other entity extraction methods fail.
-        It simply loops through all entity labels from the knowledge graph and tries to find an exact match in the question.
-        """
-        print(f"[Entity Extraction] Processing question: '{question}'")
-        
-        # Collect all potential entity matches
-        potential_entities = []
-        
-        cached_entity_labels = self.entities
-        sorted_entities = sorted(cached_entity_labels, key=len, reverse=True)
-
-        # Exact word boundary matching (highest priority)
-        for entity_label in sorted_entities:
-            # Use original question for exact matching to preserve case
-            match = self._find_entity_with_word_boundaries(question, entity_label)
-            if match and match not in self.property_names:
-                potential_entities.append(entity_label)
-                print(f"[Entity Extraction] Exact match: '{entity_label}'")
-        
-        # Final: Select best entities using longest match strategy
-        selected_entities = self._select_entities_by_longest_match(potential_entities, question)
-        
-        print(f"[Entity Extraction] Final selection: {selected_entities}")
-        return selected_entities
     
     def _find_ambiguous_entity_uris(self, entity: str) -> List[str]:
         """Finds all URIs for the given entity by querying the knowledge graph.
@@ -679,7 +478,7 @@ class QAHandler:
             
             # Get the prompt for natural language formatting
             prompt = self.prompt_manager.get_prompt(
-                "result_to_natural_language",
+                "qa_formatter",
                 question=question,
                 raw_data=json.dumps(raw_data, indent=2, ensure_ascii=False)
             )

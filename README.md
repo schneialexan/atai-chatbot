@@ -27,6 +27,7 @@ The system uses a modular architecture with local LLM models, embedding-based en
 atai-chatbot/
 ├── app/
 │   ├── core.py                    # Main application class
+│   ├── entity_extractor.py        # Shared entity extraction module
 │   ├── qa_handler.py              # Question answering with entity extraction
 │   ├── kg_handler.py              # Knowledge graph and SPARQL handling
 │   ├── recommender.py             # Movie recommendation system
@@ -102,16 +103,96 @@ python main.py
 
 ## Key Components
 
+### Entity Extractor (entity_extractor.py)
+Shared module providing sophisticated entity extraction capabilities used by both QA Handler and Recommender. The `EntityExtractor` class implements a unified extraction pipeline with multiple fallback strategies.
+
+#### Initialization
+The `EntityExtractor` requires:
+- `kg_handler`: LocalKnowledgeGraph instance for entity lookups
+- `nlp`: spaCy language model for NER
+- `property_names`: List of property names to filter out from entity matches
+- `ent2lbl`: Dictionary mapping entity URIs to labels (optional, for `find_entities_by_label()`)
+- `all_entity_labels`: List of all entity labels (optional, for `find_entities_by_label()`)
+
+Automatically loads and caches entity labels from the knowledge graph to `app/cached_entities.json` on initialization.
+
+#### Unified Extraction Method
+The `extract_entities(question, use_fuzzy_match=False, fuzzy_cutoff=0.7)` method combines all extraction strategies in a prioritized order:
+1. **Pattern-based extraction** for difficult entities (quoted titles, colons, special characters)
+2. **NER extraction** using spaCy (only adds non-overlapping entities)
+3. **Fuzzy matching** (optional, controlled by `use_fuzzy_match` parameter) for misspelled or variant entities
+4. **Brute force fallback** (called separately when `extract_entities()` returns no results)
+
+Returns a list of entity dictionaries with `'text'` and `'label'` keys.
+
+#### Extraction Strategies
+
+- **Difficult Entity Extraction** (`extract_difficult_entities()`): Pattern-based extraction for complex entities with:
+  - Quoted strings (single, double, and Unicode curly quotes: `'`, `"`, `'`, `"`)
+  - Titles with colons and dashes (e.g., "Star Wars: Episode IV", "X-Men: First Class")
+  - Complex titles with multiple special characters
+  - Handles edge cases like "The Lord of the Rings: The Fellowship of the Ring"
+  - Specific patterns for Star Wars, X-Men, Chronicles of Narnia, and other complex franchises
+  - Movies with numbers and special characters (e.g., "12 Monkeys", "300: Rise of an Empire")
+
+- **NER Extraction** (`ner_entity_extraction()`): spaCy-based named entity recognition that identifies standard entity types (PERSON, ORG, WORK_OF_ART, etc.). Only adds entities that don't overlap with difficult entities already extracted.
+
+- **Fuzzy Matching** (`fuzzy_match_extract_entities(question, cutoff=0.7, max_matches_per_mention=1)`, optional): 
+  - Two-stage process: first extracts potential entity mentions using heuristics, then matches them
+  - **Mention Extraction** (`_extract_potential_entity_mentions()`): Uses heuristics to identify likely entity names:
+    - Capitalized phrases (sequences of capitalized words)
+    - Quoted strings (all quote types)
+    - Phrases after entity-indicating words (movie, film, show, actor, director, etc.)
+  - Uses rapidfuzz library for fast fuzzy string matching
+  - Configurable similarity threshold (cutoff, default 0.7, converted to 0-100 scale for rapidfuzz)
+  - Uses weighted ratio (WRatio) for initial matching and token sort ratio for validation
+  - Filters out property names and very short mentions (< 3 characters)
+  - Handles misspellings and variations in entity names
+
+- **Brute Force Fallback** (`brute_force_extract_entities()`): 
+  - Last resort method when other extraction methods fail
+  - Searches through all cached entity labels sorted by length (longest first)
+  - Uses `_find_entity_with_word_boundaries()` for flexible matching:
+    - Simple entities: Uses word boundaries (`\b`) for exact matching
+    - Complex entities: Flexible regex patterns that handle punctuation variations (colons, em-dashes, hyphens)
+    - Preserves original case from user input
+  - Implements `_select_entities_by_longest_match()` strategy:
+    - Prioritizes longer, more specific entity matches
+    - Safety check: Prefers exact case matches when both lowercase and proper case versions exist
+  - Filters out property names automatically
+
+- **Entity Label Matching** (`find_entities_by_label(label, top_k=5, get_close_matches_n=1, get_close_matches_cutoff=0.6)`): 
+  - Uses difflib for finding closest matching entity labels
+  - Returns top-k matching entity URIs as tuples: `[(entity_uri, entity_label), ...]`
+  - Requires embeddings lookup dictionaries (`ent2lbl`, `all_entity_labels`)
+  - Useful for embedding-based QA submode and entity resolution in recommender
+
+#### Cached Entity Management
+- Automatically loads and caches entity labels from the knowledge graph to `app/cached_entities.json`
+- First run queries the knowledge graph via `kg_handler.get_all_entities()`; subsequent runs use cached data
+- Eliminates redundant queries and speeds up entity matching significantly
+- Cache is stored as a JSON list of entity label strings
+
+#### Features
+- **Word Boundary Handling**: Flexible matching via `_find_entity_with_word_boundaries()` that handles:
+  - Simple entities: Standard word boundaries
+  - Complex entities: Flexible patterns for punctuation variations (colons `:`, em-dashes `–`, hyphens `-`)
+- **Longest Match Strategy**: Prioritizes longer, more specific entity matches over shorter ones (via `_select_entities_by_longest_match()`)
+- **Case Preservation**: Maintains original case from user input when possible
+- **Property Filtering**: Automatically filters out property names from entity matches (uses `property_names` list)
+- **Deduplication**: Prevents duplicate entities across different extraction methods (case-insensitive checks)
+- **Overlap Prevention**: NER entities are only added if they don't overlap with difficult entities already found
+
+The EntityExtractor consolidates all entity extraction logic, ensuring consistent behavior across different handlers and eliminating code duplication.
+
 ### QA Handler
 Sophisticated question answering with two distinct submodes:
 
-#### Entity Extraction Pipeline (Shared)
-Both submodes use the same sophisticated entity extraction pipeline:
-- **Difficult Entity Extraction**: Pattern-based extraction for complex entities (quoted titles, colons, special characters)
-- **NER Extraction**: spaCy-based named entity recognition
-- **Entity Matching**: Fuzzy matching with longest-match strategy and word boundary handling
-- **Property Mapping**: Synonym-based property identification with fuzzy string matching
-- **Brute Force Fallback**: Comprehensive fallback when initial extraction fails
+#### Entity Extraction Pipeline
+Both submodes use the shared EntityExtractor module for entity extraction:
+- **Entity Extraction**: Uses EntityExtractor to identify entities in questions
+- **Property Mapping**: Synonym-based property identification with fuzzy string matching (QA-specific)
+- **Entity-Property Pairing**: Matches extracted entities with relevant properties for query construction
 
 #### Factual Submode
 - **Approach**: Direct knowledge graph querying via SPARQL
@@ -136,9 +217,12 @@ Both submodes use LLM-powered natural language formatting to generate human-read
 Sophisticated hybrid movie recommendation system that combines two complementary approaches:
 
 #### Entity Extraction and Common Traits Inference
-The recommendation pipeline starts with the same entity extraction used in QA:
-- **Entity Extraction**: Uses NER and pattern matching to identify movie titles from user queries
-- **Entity Resolution**: Maps movie titles to Wikidata URIs using fuzzy matching and film class filtering
+The recommendation pipeline starts with the shared EntityExtractor for entity extraction:
+- **Entity Extraction**: Uses EntityExtractor (with all fallback strategies) to identify movie titles from user queries
+- **Entity Resolution**: 
+  1. Maps movie titles to all candidate Wikidata URIs using exact and fuzzy label matching (`resolve_entity_to_candidates`)
+  2. Returns nested list structure: `[[uri1, uri2], [uri3], ...]` where each inner list contains all candidate URIs for one entity
+  3. Filters candidates to only film entities using film class checking (`filter_candidates`)
 - **Common Traits Inference**: Recursively explores the knowledge graph to find shared properties (directors, genres, actors, themes) across user's liked movies
 - **Trait Aggregation**: Identifies the most common traits with source tracking and count-based ranking
 
@@ -368,7 +452,7 @@ flowchart LR
 ```mermaid
 graph LR
     A["SPARQL Query Results<br>(Raw Data)"] --> B["Prepare Raw Data<br>(answers, metadata)"]
-    B --> C["PromptManager.get_prompt<br>('result_to_natural_language')"]
+    B --> C["PromptManager.get_prompt<br>('qa_formatter')"]
     C --> D["LLM.generate_response<br>(formatted prompt)"]
     D --> E["Natural Language Answer"]
     
@@ -399,8 +483,10 @@ graph LR
 
 ```mermaid
 flowchart LR
-    A["User Query"] --> B["Entity Extraction<br>& Resolution"]
-    B --> C["Infer Common Traits<br>(KG exploration)"]
+    A["User Query"] --> B1["Entity Extraction<br>(EntityExtractor)"]
+    B1 --> B2["Resolve to Candidates<br>(resolve_entity_to_candidates)"]
+    B2 --> B3["Filter to Films<br>(filter_candidates)"]
+    B3 --> C["Infer Common Traits<br>(KG exploration)"]
     
     C --> D1["Lookup Movie URIs<br>in Metadata DF"]
     D1 --> D2["Extract Features<br>(genres, directors,<br>year, types, desc)"]
@@ -416,7 +502,9 @@ flowchart LR
     F --> G["Natural Language<br>Response"]
     
     style A fill:#e1f5fe,color:#000000
-    style B fill:#fff3e0,color:#000000
+    style B1 fill:#fff3e0,color:#000000
+    style B2 fill:#fff3e0,color:#000000
+    style B3 fill:#fff3e0,color:#000000
     style C fill:#f3e5f5,color:#000000
     style D1 fill:#e1bee7,color:#000000
     style D2 fill:#e1bee7,color:#000000
@@ -438,7 +526,7 @@ graph LR
     D["Common Traits<br>(List)"] --> C
     E["User Query"] --> C
     
-    C --> F["PromptManager.get_prompt<br>('recommendation_response_formatter')"]
+    C --> F["PromptManager.get_prompt<br>('recommendation_formatter')"]
     F --> G["LLM.generate_response<br>(formatted prompt)"]
     G --> H["Natural Language Response<br>(Both recommendation types explained)"]
     

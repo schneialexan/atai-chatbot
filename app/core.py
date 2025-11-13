@@ -88,7 +88,7 @@ class App:
                 print("Warning: Embedding handler not available, embedding fallback disabled")
             
             self._qa_model = QAHandler(
-                llm_handler=self._get_llm_handler("factual_qa"),
+                llm_handler=self._get_llm_handler("qa_formatter"),
                 kg_handler=self._get_kg_handler(),
                 embedding_handler=embedding_handler,
                 embeddings_path=self.embeddings_path

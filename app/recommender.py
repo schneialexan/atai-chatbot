@@ -1004,17 +1004,25 @@ class MovieRecommender:
         
         return result
     
+    def _sanitize_message(self, message: str) -> str:
+        """
+        Sanitizes the message to remove common words and phrases that are not relevant to the recommendation.
+        """
+        message = message.replace("Recommend", "")
+        message = message.replace("recommend", "")
+        return message
+
     def recommend(self, message: str):
         """
         Returns a recommendation for a movie based on the user's query.
         """
         # 1. get the entities from the message/question based on different approaches
         # TODO: Check if fuzzy matching is beneficial for the recommender
-        entities = self.entity_extractor.extract_entities(message, use_fuzzy_match=True)
+        entities = self.entity_extractor.extract_entities(self._sanitize_message(message), use_fuzzy_match=True)
         print(f"[Movie Recommender] Entities: {entities}")
 
         if not entities:
-            entities = self.entity_extractor.brute_force_extract_entities(message)
+            entities = self.entity_extractor.brute_force_extract_entities(self._sanitize_message(message))
             entities = entities[:3]
             print(f"[Movie Recommender] Brute force entities: {entities}")
         

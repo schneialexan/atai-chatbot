@@ -2,6 +2,7 @@ import time
 import os
 import shutil
 import atexit
+import emoji
 
 from app.core import App
 from speakeasypy import Chatroom, EventType, Speakeasy
@@ -80,6 +81,7 @@ class Agent:
             start = time.time()
             answer = self.app.get_answer(message=message, mode=self.mode)
             response_time = time.time() - start
+            answer = emoji.replace_emoji(answer, replace='')
             print(f"{100*'-'}\nAnswer from Bot (in {response_time:.2f} s): '{answer}'.\n{100*'-'}")
             room.post_messages(f"{answer}")
             self.log_event(room.room_id, message, answer, response_time)

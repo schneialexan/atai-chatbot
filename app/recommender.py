@@ -960,7 +960,11 @@ class MovieRecommender:
             response = self.llm_handler.generate_response(prompt)
             
             if response['success']:
-                return response['content']
+                # Check for speakeasy message limit
+                if len(response['content']) > 1999:
+                    return self._format_recommendations_simple(tfidf_recommendations, cf_recommendations, user_query)
+                else:
+                    return response['content']
             else:
                 # Fallback to simple formatting if LLM fails
                 return self._format_recommendations_simple(tfidf_recommendations, cf_recommendations, user_query)
@@ -980,12 +984,20 @@ class MovieRecommender:
         if not tfidf_recommendations.empty:
             result += "Similar movies (content-based):\n"
             for _, row in tfidf_recommendations.head(5).iterrows():
-                result += f"- {row.get('title', 'Unknown')} ({row.get('year', 'N/A')})\n"
+                year = row.get('year', 'N/A')
+                if year != 'N/A':
+                    year = f" ({year})"
+                result += f"- {row.get('title', 'Unknown')}{year}\n"
         
         if not cf_recommendations.empty:
             result += "\nOther users who like the same movies also like:\n"
             for _, row in cf_recommendations.head(5).iterrows():
-                result += f"- {row.get('title', 'Unknown')} ({row.get('year', 'N/A')})\n"
+                year = row.get('year', 'N/A')
+                if year != 'N/A':
+                    year = f" ({year})"
+                result += f"- {row.get('title', 'Unknown')}{year}\n"
+
+        result += "\nHave fun with the recommendations!"
         
         if tfidf_recommendations.empty and cf_recommendations.empty:
             result = "I couldn't find any recommendations based on your preferences. Please try with different movies."

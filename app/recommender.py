@@ -1024,6 +1024,10 @@ class MovieRecommender:
         if not entities:
             entities = self.entity_extractor.brute_force_extract_entities(self._sanitize_message(message))
             entities = entities[:3]
+            formatted_entities = []
+            for entity in entities:
+                formatted_entities.append({"text": entity, "label": "WORK_OF_ART"})
+            entities = formatted_entities
             print(f"[Movie Recommender] Brute force entities: {entities}")
         
         if not entities:

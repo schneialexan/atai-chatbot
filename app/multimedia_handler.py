@@ -196,7 +196,8 @@ class MultimediaHandler:
                     # Use find_entities_by_label to get entity URIs
                     top_k_entities = self.entity_extractor.find_entities_by_label(entity_text)
                     for entity_uri, entity_label in top_k_entities:
-                        candidate_uris.append(str(entity_uri))
+                        if str(entity_uri) not in candidate_uris:
+                            candidate_uris.append(str(entity_uri))
         
         # Fallback to brute force extraction
         if not candidate_uris:
@@ -207,7 +208,8 @@ class MultimediaHandler:
                 for entity_label in brute_force_entities:
                     top_k_entities = self.entity_extractor.find_entities_by_label(entity_label)
                     for entity_uri, _ in top_k_entities:
-                        candidate_uris.append(str(entity_uri))
+                        if str(entity_uri) not in candidate_uris:
+                            candidate_uris.append(str(entity_uri))
         
         if not candidate_uris:
             return []

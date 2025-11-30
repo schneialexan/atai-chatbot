@@ -30,15 +30,27 @@ class TestMultimediaHandler(unittest.TestCase):
         test_cases = [
             {
                 "question": "Show me a picture of Halle Berry.",
-                "expected": "https://www.imdb.com/name/nm0000932"
+                "expected": "image:0344/9aLI0LSi7cbieyiskOdsBaneKmp.jpg"
             },
             {
                 "question": "What does Denzel Washington look like?",
-                "expected": "https://www.imdb.com/name/nm0000243"
+                "expected": "image:0278/393wX9AGWpseVqojQDPLy3bTBia.jpg"
             },
             {
                 "question": "Let me know what Sandra Bullock looks like.",
-                "expected": "https://www.imdb.com/name/nm0000113"
+                "expected": "image:0249/hPHGKPAWZ8gArYXMk225rrYPoyJ.jpg"
+            },
+            {
+                "question": "Let me know how the cover of Interstellar looks like.",
+                "expected": "image:0055/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg"
+            },
+            {
+                "question": "Let me know how the cover of Forrest Gump looks like.",
+                "expected": "image:0077/zxzYh2YtgypKrijVE0OuIyEgwdT.jpg"
+            },
+            {
+                "question": "Show me the picture of the film The Hobbit: The Desolation of Smaug!",
+                "expected": "image:0147/xQYiXsheRCDBA39DOrmaw1aSpbk.jpg"
             },
         ]
 

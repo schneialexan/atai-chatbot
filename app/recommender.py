@@ -39,13 +39,11 @@ DDIS = rdflib.Namespace('http://ddis.ch/atai/')
 
 ITEM_RATINGS_PATH = "dataset/ratings/item_ratings.csv"
 USER_RATINGS_PATH = "dataset/ratings/user_ratings.csv"
-LABEL_TO_URI_PATH = "app/label_to_uri.json"
 
 FILM_CLASSES = {
     WD.Q11424, # film
-    WD.Q24866, # television film
     WD.Q202866,# animated film
-    WD.Q24856, # short film
+    WD.Q24856, # film series
 }
 
 # RELATIONAL props to follow (relational navigation)
@@ -100,7 +98,6 @@ class MovieRecommender:
         self._load_embeddings_and_lookup_dictionaries()
 
         self.all_labels = list(self.lbl2ent.keys())
-        self.lbl2uri = self._load_label_to_uri()
         
         # Initialize EntityExtractor with embeddings lookup dictionaries
         # Property names not needed for recommender (pass empty list)
@@ -120,10 +117,6 @@ class MovieRecommender:
         except Exception as e:
             print(f"[Error] initializing recommendation models: {e}")
             raise ValueError(f"Error initializing recommendation models.")
-    
-    def _load_label_to_uri(self):
-        with open(LABEL_TO_URI_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
     
     def fetch_movie_metadata(self, item_uri: str) -> Dict[str, str]:
         """

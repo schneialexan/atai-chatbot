@@ -109,7 +109,10 @@ class App:
     def _get_multimedia(self):
         """Lazy initialization of multimedia handler"""
         if self._multimedia is None:
-            self._multimedia = MultimediaHandler()
+            self._multimedia = MultimediaHandler(
+                kg_handler=self._get_kg_handler(),
+                images_json_path="dataset/additional/images.json"
+            )
         return self._multimedia
 
     def get_answer(self, message: str, mode: int = 5):

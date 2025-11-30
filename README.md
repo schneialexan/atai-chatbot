@@ -91,7 +91,7 @@ python main.py
 - `1`: SPARQL queries
 - `2`: Natural language QA (with factual/embedding submode detection)
 - `3`: Movie recommendations (hybrid content-based + collaborative filtering)
-- `4`: Multimedia retrieval (WIP)
+- `4`: Multimedia retrieval (image lookup for films and persons)
 - `5`: Auto-detect mode (with submode detection)
 
 **Example questions:**
@@ -99,7 +99,7 @@ python main.py
 - QA Factual: `Who directed The Godfather?` or `Please answer this question with a factual approach: Who directed The Godfather?`
 - QA Embedding: `Please answer this question with an embedding approach: Who directed The Godfather?`
 - Recommendations: `I like The Godfather, can you recommend something similar?` or `Recommend movies like The Matrix and Inception`
-- Multimedia: `Show me a picture of The Godfather`
+- Multimedia: `Show me a picture of Halle Berry` or `What does Denzel Washington look like?`
 
 ## Key Components
 
@@ -259,6 +259,42 @@ The recommendation pipeline starts with the shared EntityExtractor for entity ex
 - **Model Building**: Metadata DataFrame, TF-IDF matrix, and collaborative filtering models are built during `MovieRecommender` object initialization
 - **Caching**: Metadata fetching uses caching for performance - first initialization may take time, but cached data speeds up subsequent initializations
 - **Performance**: All models are ready immediately after initialization, making recommendation calls fast and consistent
+
+### Multimedia Handler
+Sophisticated image retrieval system that maps natural language queries to image paths for films and persons.
+
+#### Entity Extraction and Type Detection
+The multimedia pipeline starts with the shared EntityExtractor for entity extraction:
+- **Entity Extraction**: Uses EntityExtractor (with fuzzy matching and brute force fallback) to identify entity names from user queries
+- **Entity Type Detection**: Uses `is_film()` and `is_person()` methods to determine entity type:
+  - **Film Detection**: Checks if entity is instance of film classes (Q11424: film, Q202866: animated film, Q24856: film series)
+  - **Person Detection**: Checks if entity is instance of human class (Q5: human)
+- **Entity Resolution**: Maps entity labels to entity URIs using EntityExtractor's `find_entities_by_label()` method
+
+#### On-Demand Image Search
+- **Simple Approach**: No precomputed cache - searches `images.json` in-memory for each query
+- **Query Flow**:
+  1. Extract multiple entity candidates from question using EntityExtractor (with fuzzy matching and brute force fallback)
+  2. Filter candidates to only films or persons using `is_film()` or `is_person()`
+  3. **Loop through entity results** until a valid image is found:
+     - For each entity, query knowledge graph for IMDb ID using `graph.objects(entity_uri, WDT.P345)`
+     - If no IMDb ID found, continue to next entity
+     - If IMDb ID found, search `images.json` for entries where IMDb ID matches:
+       - **For Films**: IMDb ID must be in the `movie` list
+       - **For Persons**: IMDb ID must be in the `cast` list AND `type` must be `"profile"`
+     - If images found, return immediately with the first valid image path
+     - If no images found, continue to next entity
+  4. If no valid image found after checking all entities, return an apology message
+- **In-Memory Data**: `images.json` is loaded during initialization and kept in memory for fast searches
+- **Response Format**: Returns image path in format `image:{path}` (e.g., `image:0227/rm73963776.jpg`) or an apology message if no valid image is found
+- **Image Selection**: The `get_image()` method accepts a `return_random_image` parameter (default: `False`) to control whether to return a random image or the first matching image
+- **Error Handling**: Loops through all entity candidates to maximize chances of finding a valid image. Returns helpful apology message only if no valid image is found after checking all entities
+
+#### Initialization
+- **Entity Labels**: Loads entity labels from knowledge graph for EntityExtractor initialization
+- **Images Data**: Loads `images.json` into memory during initialization
+- **No Cache Building**: No cache file needed - searches are performed on in-memory data
+- **Performance**: Initialization loads `images.json` (may take time for large files), but all queries are fast with in-memory data
 
 ### Local LLM Framework
 Modular framework supporting:
@@ -536,6 +572,53 @@ graph LR
     style F fill:#e1bee7,color:#000000
     style G fill:#c8e6c9,color:#000000
     style H fill:#b2dfdb,color:#000000
+```
+
+### Multimedia Handler Pipeline (multimedia_handler.py)
+
+```mermaid
+flowchart TD
+    A["User Query"] --> B["Sanitize Question<br>(Remove multimedia phrases)"]
+    B --> C["Entity Extraction<br>(EntityExtractor)"]
+    C --> D["Filter to Films/Persons<br>(is_film or is_person)"]
+    D --> E{"Entity Results<br>Found?"}
+    E -- No --> F["Error: Entity not found"]
+    E -- Yes --> G["Loop: For Each Entity"]
+    G --> H["Get IMDb ID from KG<br>(graph.objects P345)"]
+    H --> I{"IMDb ID<br>Found?"}
+    I -- No --> J["Continue to<br>Next Entity"]
+    I -- Yes --> K["Search images.json<br>for IMDb ID"]
+    K --> L{"Entity Type?"}
+    L -- Film --> M["Search in movie list"]
+    L -- Person --> N["Search in cast list<br>(type=profile)"]
+    M --> O{"Images<br>Found?"}
+    N --> O
+    O -- No --> J
+    O -- Yes --> P["Get First Image Path"]
+    P --> Q["Return: image:{path}"]
+    J --> R{"More Entities<br>to Check?"}
+    R -- Yes --> G
+    R -- No --> S["Return: Apology Message"]
+    
+    style A fill:#e1f5fe,color:#000000
+    style B fill:#fff3e0,color:#000000
+    style C fill:#fff3e0,color:#000000
+    style D fill:#f3e5f5,color:#000000
+    style E fill:#fce4ec,color:#000000
+    style F fill:#ffcdd2,color:#000000
+    style G fill:#e1bee7,color:#000000
+    style H fill:#e1bee7,color:#000000
+    style I fill:#fce4ec,color:#000000
+    style J fill:#fff9c4,color:#000000
+    style K fill:#e1bee7,color:#000000
+    style L fill:#fce4ec,color:#000000
+    style M fill:#c8e6c9,color:#000000
+    style N fill:#c8e6c9,color:#000000
+    style O fill:#fce4ec,color:#000000
+    style P fill:#c8e6c9,color:#000000
+    style Q fill:#b2dfdb,color:#000000
+    style R fill:#fce4ec,color:#000000
+    style S fill:#ffcdd2,color:#000000
 ```
 
 ---

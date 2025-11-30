@@ -40,10 +40,16 @@ DDIS = rdflib.Namespace('http://ddis.ch/atai/')
 ITEM_RATINGS_PATH = "dataset/ratings/item_ratings.csv"
 USER_RATINGS_PATH = "dataset/ratings/user_ratings.csv"
 
-FILM_CLASSES = {
-    WD.Q11424, # film
-    WD.Q202866,# animated film
-    WD.Q24856, # film series
+TYPE_TO_CLASSES = {
+    "film":        {WD.Q11424, WD.Q202866, WD.Q24856},
+    "director":    {WD.Q2526255},            # film director
+    "actor":       {WD.Q33999},              # film actor/actress
+    "author":      {WD.Q36180, WD.Q49757},   # writer, playwright
+    "genre":       {WD.Q201658, WD.Q223393}, # film/art genres
+    "language":    {WD.Q34770},
+    "country":     {WD.Q6256},
+    "studio":      {WD.Q1762059, WD.Q43229, WD.Q4830453},
+    "designer":    {WD.Q3282637},            # costume designer (Colleen Atwood)
 }
 
 # RELATIONAL props to follow (relational navigation)
@@ -574,36 +580,117 @@ class MovieRecommender:
         # Sort results: descending count, then label
         items.sort(key=lambda x: (-x["count"], x["label"] or ""))
         return items
+    
+    def get_types(self, uri):
+        """Return union of P31 types and P106 occupations."""
+        p31 = set(self.kg_handler.graph.objects(uri, WDT.P31))
+        p106 = set(self.kg_handler.graph.objects(uri, WDT.P106))
+        return p31 | p106
 
+    def score_categories(self, candidates):
+        scores = {cat: 0 for cat in TYPE_TO_CLASSES}
 
-    def is_film(self, uri):
-        types = set(self.kg_handler.graph.objects(uri, WDT.P31))
-        # check if it is a film or anything similar
-        if types & FILM_CLASSES:
-            return uri
+        for group in candidates:
+            for uri in group:
+                types = self.get_types(uri)
+                for cat, allowed in TYPE_TO_CLASSES.items():
+                    if types & allowed:
+                        scores[cat] += 1
+
+        return scores
+
+    def infer_best_category(self, candidates):
+        scores = self.score_categories(candidates)
+        best_cat = max(scores, key=lambda c: scores[c])
+        return best_cat, scores
 
     def filter_candidates(self, candidates):
+        best_cat, scores = self.infer_best_category(candidates)
+        allowed = TYPE_TO_CLASSES[best_cat]
+
         selected = []
-        for entity in candidates:
-            ent = []
-            for uri in entity:
-                if self.is_film(uri):
-                    ent.append(uri)
-            selected.append(ent)
+
+        for group in candidates:
+            ent_list = []
+            for uri in group:
+                types = self.get_types(uri)
+                if types & allowed:
+                    ent_list.append(uri)
+            selected.append(ent_list)
+
+        print("[FILTER-CANDIDATES] Category scores:", scores)
+        print("[FILTER-CANDIDATES] Selected category:", best_cat)
         return selected
     
-    def print_entities(self, entities, candidates, selected_candidates):
-        print(f"\n{3*'-'}\nResolved Entities:")
+    def clean_type_labels(self, types):
+        """Convert types (URIs) into a clean sorted label list."""
+        labels = []
+
+        for t in types:
+            lbl = self.get_label_safe(t)
+            if not lbl:
+                continue
+
+            # Filter low-value classes like "human"
+            if lbl.lower() in {"human", "person"}:
+                continue
+
+            labels.append(lbl)
+
+        # If after filtering nothing remains → return single dash
+        if not labels:
+            return ["—"]
+
+        # Deduplicate + sort
+        return sorted(set(labels))
+    
+    def get_label_safe(self, uri):
+        """Get readable label for a URI; return None if unavailable."""
+        if uri is None:
+            return None
+
+        # 1. Try your cached ent2lbl
+        lbl = self.ent2lbl.get(uri)
+        if lbl:
+            return lbl
+
+        # 2. Try reading from graph directly
+        lbl = next(iter(self.kg_handler.graph.objects(uri, RDFS.label)), None)
+        if lbl:
+            return str(lbl)
+
+        return None
+    
+    def print_entities(self, candidates, selected_candidates):
+        print("\n---\nResolved Entities:")
         for i, cand in enumerate(candidates):
             sel_cand = selected_candidates[i]
-            entity_name = entities[i]["text"]
-            print(f"\n{entity_name}:")
+
+            # Print group label: first non-empty label
+            group_label = None
             for uri in cand:
-                get_type = next(iter(set(self.kg_handler.graph.objects(uri, WDT.P31))), None)
-                type_label = self.ent2lbl.get(get_type, "Unknown")
+                lbl = next(iter(self.kg_handler.graph.objects(uri, RDFS.label)), None)
+                if lbl:
+                    group_label = str(lbl)
+                    break
+            print(group_label or "—")
+
+            for uri in cand:
+                p31_types = set(self.kg_handler.graph.objects(uri, WDT.P31))
+                p106_types = set(self.kg_handler.graph.objects(uri, WDT.P106))
+                all_types = p31_types | p106_types
+
+                type_labels = self.clean_type_labels(all_types)
+
                 selected = "OK" if uri in sel_cand else "X"
-                print("    {:<50} {:<30} {:<6}".format(str(uri), type_label, selected))
-        print(f"{3*'-'}\n")
+
+                print("    {:<50} {:<40} {:<6}".format(
+                    str(uri),
+                    ", ".join(type_labels),
+                    selected
+                ))
+
+        print("---\n")
     
     def _build_collaborative_filtering(self):
         """
@@ -1036,12 +1123,14 @@ class MovieRecommender:
         candidates = self.resolve_entities(entities)
         # 2(b). select the correct uris/entites from all possible candidates
         selected_candidates = self.filter_candidates(candidates)
-        self.print_entities(entities, candidates, selected_candidates)
+        self.print_entities(candidates, selected_candidates)
         
         # Flatten selected candidates to get list of URIs
         selected_uris = []
         for group in selected_candidates:
             selected_uris.extend(group)
+        
+        print(selected_uris)
         
         if not selected_uris:
             return "I couldn't find any valid movies in my database. Please try with different movie titles."

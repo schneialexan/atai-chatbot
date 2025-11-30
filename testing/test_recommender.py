@@ -32,7 +32,10 @@ class TestMovieRecommendations(unittest.TestCase):
     
     def test_recommender_questions(self):
         """Test recommender questions."""
-        test_cases = [
+        test_cases = [{
+                "question": "Recommend movies similar to La Dolce Vita and The Voice of the Moon.",
+                "expected": "Fellini"
+            },
             {
                 "question": "Given that I like The Lion King, Pocahontas, and Beauty and the Beast, can you recommend some movies?",
                 "expected": "Disney"
@@ -44,6 +47,22 @@ class TestMovieRecommendations(unittest.TestCase):
             {
                 "question": "Recommend movies similar to Hamlet and Othello.",
                 "expected": "Shakespear"
+            },
+            {
+                "question": "I like Singin' in the Rain, and Moulin Rouge. What other movies would you recommend for me to watch?",
+                "expected": "musical"
+            },
+            {
+                "question": "I really enjoyed Chicago, Memoirs of a Geisha, and Alice in Wonderland. Can you recommend me some similar movies?",
+                "expected": "Colleen Atwood"
+            },
+            {
+                "question": "What other movies in Japanese do you recommend? I liked Twin Sisters of Kyoto.",
+                "expected": "Tōru Takemitsu"
+            },
+            {
+                "question": "Can you recommend some biographical movies given that I like Meryl Streep?",
+                "expected": "Julia"
             },
         ]
         

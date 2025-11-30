@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 WD = rdflib.Namespace('http://www.wikidata.org/entity/')
 WDT = rdflib.Namespace('http://www.wikidata.org/prop/direct/')
+DDIS = rdflib.Namespace('http://ddis.ch/atai/')
 
 ITEM_RATINGS_PATH = "dataset/ratings/item_ratings.csv"
 USER_RATINGS_PATH = "dataset/ratings/user_ratings.csv"
@@ -54,6 +55,7 @@ RELATIONAL_PROPS = [
     WDT.P144,  # based on
     WDT.P179,  # part of series
     WDT.P495,  # country of origin
+    DDIS.indirectSubclassOf,
 ]
 
 # INTERESTING props to collect
@@ -73,6 +75,7 @@ INTERESTING_PROPS = [
     # Thematic
     WDT.P136,  # genre
     WDT.P921,  # main subject
+    DDIS.tag
 ]
 
 class MovieRecommender:
@@ -561,8 +564,11 @@ class MovieRecommender:
                 pred_labels.append(str(pl) if pl else str(p))
             pred_label_joined = "; ".join(sorted(pred_labels))
 
-            # Get object label (if any)
-            label = self.kg_handler.graph.value(o, RDFS.label)
+            # --- Handle DDIS.tag (Literals) correctly ---
+            if isinstance(o, rdflib.Literal):
+                label = str(o)  # It's a string/tag, just use it
+            else:
+                label = self.kg_handler.graph.value(o, RDFS.label) # It's a URI, fetch label
 
             items.append({
                 "label": str(label) if label else None,

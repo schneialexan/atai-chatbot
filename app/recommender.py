@@ -1160,6 +1160,9 @@ class MovieRecommender:
             print(f"[Movie Recommender] Collaborative filtering recommendations: {cf_recs}")
         except Exception as e:
             print(f"[Movie Recommender] Warning: Collaborative filtering recommendations failed: {e}")
+            
+        # TODO: Fallback in case recs are empty
+        # the uris are guaranteed not films, therefore list all movies connected to each uri
         
         # 6. Format and return recommendations
         if tfidf_recs.empty and cf_recs.empty:

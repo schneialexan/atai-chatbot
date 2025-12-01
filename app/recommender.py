@@ -40,6 +40,17 @@ DDIS = rdflib.Namespace('http://ddis.ch/atai/')
 ITEM_RATINGS_PATH = "dataset/ratings/item_ratings.csv"
 USER_RATINGS_PATH = "dataset/ratings/user_ratings.csv"
 
+# Film-related Wikidata properties movies usually link to
+MOVIE_PROPS = [
+    WDT.P161,  # cast member
+    WDT.P57,   # director
+    WDT.P58,   # screenwriter
+    WDT.P170,  # creator
+    WDT.P272,  # production company
+    WDT.P495,  # country of origin
+    WDT.P136,  # genre
+]
+
 TYPE_TO_CLASSES = {
     "film":        {WD.Q11424, WD.Q202866, WD.Q24856},
     "director":    {WD.Q2526255},            # film director
@@ -1101,7 +1112,96 @@ class MovieRecommender:
         message = message.replace("Recommend", "")
         message = message.replace("recommend", "")
         return message
+    
+    def get_fallback_movies(self, selected_uris, limit=10):
+        """
+        Fallback method: if TF-IDF and CF produce no recommendations,
+        return a list of movies directly connected to the selected entities.
+        """
 
+        print("[Fallback] No TF-IDF or CF results. Searching KG for connected movies...")
+
+        fallback_movies = []
+
+        for uri in selected_uris:
+            for p in MOVIE_PROPS:
+                # Subjects where subject --p--> uri  (e.g. movie --cast member--> actor)
+                for movie in self.kg_handler.graph.subjects(p, uri):
+                    # Only keep movies (instance of Q11424)
+                    if (movie, WDT.P31, WD.Q11424) in self.kg_handler.graph:
+                        try:
+                            title = self.kg_handler.get_label_for_uri(str(movie))
+                        except Exception:
+                            title = str(movie)
+
+                        fallback_movies.append({
+                            "title": title,
+                            "item_id": str(movie)
+                        })
+
+        # Deduplicate by movie URI
+        seen = set()
+        unique_movies = []
+        for m in fallback_movies:
+            if m["item_id"] not in seen:
+                seen.add(m["item_id"])
+                unique_movies.append(m)
+
+        if not unique_movies:
+            return []
+
+        return unique_movies[:limit]
+    
+    def format_fallback_recommendations(self, fallback_movies, user_query: str) -> str:
+        """
+        Formats fallback movie recommendations using the LLM if available.
+        If the LLM handler is not available, falls back to simple formatting.
+        """
+
+        if self.llm_handler is None or self.prompt_manager is None:
+            # Simple fallback formatting
+            result = "I couldn’t find direct recommendations, but here are movies related to what you mentioned:\n\n"
+            for m in fallback_movies:
+                result += f"- {m['title']}\n"
+            return result
+
+        # Prepare minimal structured list
+        fallback_list = [
+            {
+                "title": m["title"],
+                "item_id": m["item_id"]
+            }
+            for m in fallback_movies
+        ]
+
+        try:
+            # Use a dedicated prompt
+            prompt = self.prompt_manager.get_prompt(
+                "fallback_recommendation_formatter",
+                user_query=user_query,
+                fallback_recommendations=json.dumps(fallback_list, indent=2, ensure_ascii=False)
+            )
+
+            response = self.llm_handler.generate_response(prompt)
+
+            if response.get('success') and len(response.get('content', "")) < 2000:
+                return response['content']
+            else:
+                # LLM failed → simple formatting
+                result = "I couldn’t find direct recommendations, but here are related movies:\n\n"
+                for m in fallback_movies:
+                    result += f"- {m['title']}\n"
+                return result
+
+        except Exception as e:
+            print(f"[Fallback Formatter] Error formatting fallback recommendations: {e}")
+            # Final safety fallback
+            result = "Here are some movies related to what you mentioned:\n\n"
+            for m in fallback_movies:
+                result += f"- {m['title']}\n"
+            return result
+
+    
     def recommend(self, message: str):
         """
         Returns a recommendation for a movie based on the user's query.
@@ -1161,10 +1261,14 @@ class MovieRecommender:
         except Exception as e:
             print(f"[Movie Recommender] Warning: Collaborative filtering recommendations failed: {e}")
             
-        # TODO: Fallback in case recs are empty
-        # the uris are guaranteed not films, therefore list all movies connected to each uri
-        
-        # 6. Format and return recommendations
+        # 6. Fallback if both TF-IDF and CF fail
+        if tfidf_recs.empty and cf_recs.empty:
+            fallback = self.get_fallback_movies(selected_uris, limit=10)
+            if not fallback:
+                return "I couldn't find any related movies in the database."
+            return self.format_fallback_recommendations(fallback, message)
+
+        # 7. Format and return recommendations
         if tfidf_recs.empty and cf_recs.empty:
             return "I couldn't find any recommendations based on your preferences. Please try with different movies."
         else:

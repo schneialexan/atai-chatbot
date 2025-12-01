@@ -64,6 +64,14 @@ class TestMovieRecommendations(unittest.TestCase):
                 "question": "Can you recommend some biographical movies given that I like Meryl Streep?",
                 "expected": "Julia"
             },
+            {
+                "question": "I really enjoy movies featuring Tom Hanks, what would you recommend?",
+                "expected": "Forrest Gump"
+            },
+            {
+                "question": "Can you give me some films connected to Leonardo DiCaprio?",
+                "expected": "Inception"
+            }
         ]
         
         # Ensure test_cases is a list

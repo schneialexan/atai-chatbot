@@ -75,6 +75,7 @@ INTERESTING_PROPS = [
     WDT.P750,  # distributor
     WDT.P364,  # original language of work
     WDT.P495,  # country of origin
+    WDT.P106,  # occupation
     
     # Thematic
     WDT.P136,  # genre
@@ -568,6 +569,9 @@ class MovieRecommender:
                 label = str(o)  # It's a string/tag, just use it
             else:
                 label = self.kg_handler.graph.value(o, RDFS.label) # It's a URI, fetch label
+            # if the label cannot be resolved from the graph the data is "not relevant" (according to TA/prof)
+            if not label:
+                continue
 
             items.append({
                 "label": str(label) if label else None,
@@ -1129,8 +1133,6 @@ class MovieRecommender:
         selected_uris = []
         for group in selected_candidates:
             selected_uris.extend(group)
-        
-        print(selected_uris)
         
         if not selected_uris:
             return "I couldn't find any valid movies in my database. Please try with different movie titles."

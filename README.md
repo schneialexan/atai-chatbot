@@ -17,6 +17,7 @@ The chatbot supports four main modes of operation:
 3. **Recommendation Mode**: Hybrid movie recommendation system combining content-based (TF-IDF) and collaborative filtering approaches
    - **Content-Based (TF-IDF)**: Recommends movies similar in content (genres, directors, themes) with hybrid scoring using common traits
    - **Collaborative Filtering**: Recommends movies based on user rating patterns (movies liked by users with similar tastes)
+   - **Graph Fallback**: When both models fail, traverses the KG around the mentioned titles to return directly connected films (shared cast, director, etc.)
 4. **Multimedia Mode**: Image retrieval and multimedia content handling
 
 The system uses a modular architecture with local LLM models, embedding-based entity matching, and intelligent fallback mechanisms for robust question answering.
@@ -248,6 +249,13 @@ The recommendation pipeline starts with the shared EntityExtractor for entity ex
   4. Recommends movies that users with similar tastes have rated highly
 - **Use Case**: Discovering movies through collective user preferences and rating patterns
 - **Output**: Movies ranked by collaborative similarity scores
+
+#### Knowledge Graph Fallback Recommendations
+- **Trigger**: Executed only when both TF-IDF and collaborative filtering return empty results (e.g., movies missing from metadata or sparse ratings)
+- **Approach**: `get_fallback_movies()` walks MOVIE_PROPS in the KG, collecting other films that connect to the selected URIs through shared cast members, directors, writers, genres, production companies, or home countries
+- **Filtering**: Keeps only entities explicitly typed as films (`wd:Q11424`), de-duplicates by URI, and caps the list (default 10 items) to avoid overwhelming responses
+- **Formatting**: `format_fallback_recommendations()` uses a dedicated prompt when the LLM is available and gracefully falls back to a plain text list if generation fails
+- **Purpose**: Guarantees the user still receives useful, explainable suggestions even if either model cannot score the requested titles
 
 #### Recommendation Formatting
 - **LLM-Powered Formatting**: Uses dedicated prompt to format both recommendation types into natural language
@@ -532,9 +540,13 @@ flowchart LR
     D5 --> D["TF-IDF Recommendations"]
     
     C --> E["CF Recommendations<br>(Rating Patterns)"]
-    D --> F["Format with LLM"]
-    E --> F
+    D --> H{"TF-IDF/CF Results?"}
+    E --> H
+    H -- Yes --> F["Format with LLM (Prompt: recommendation_formatter)"]
+    H -- No --> I["Fallback to KG Recommendations"]
+    I --> J["Format with LLM (Prompt: fallback_recommendation_formatter)"]
     F --> G["Natural Language<br>Response"]
+    J --> G
     
     style A fill:#e1f5fe,color:#000000
     style B1 fill:#fff3e0,color:#000000
@@ -547,6 +559,9 @@ flowchart LR
     style D5 fill:#e1bee7,color:#000000
     style D fill:#e1bee7,color:#000000
     style E fill:#e1bee7,color:#000000
+    style H fill:#fce4ec,color:#000000
+    style I fill:#e1bee7,color:#000000
+    style J fill:#e8f5e8,color:#000000
     style F fill:#e8f5e8,color:#000000
     style G fill:#b2dfdb,color:#000000
 ```
@@ -577,48 +592,46 @@ graph LR
 ### Multimedia Handler Pipeline (multimedia_handler.py)
 
 ```mermaid
-flowchart TD
-    A["User Query"] --> B["Sanitize Question<br>(Remove multimedia phrases)"]
-    B --> C["Entity Extraction<br>(EntityExtractor)"]
-    C --> D["Filter to Films/Persons<br>(is_film or is_person)"]
-    D --> E{"Entity Results<br>Found?"}
-    E -- No --> F["Error: Entity not found"]
-    E -- Yes --> G["Loop: For Each Entity"]
-    G --> H["Get IMDb ID from KG<br>(graph.objects P345)"]
-    H --> I{"IMDb ID<br>Found?"}
-    I -- No --> J["Continue to<br>Next Entity"]
-    I -- Yes --> K["Search images.json<br>for IMDb ID"]
-    K --> L{"Entity Type?"}
-    L -- Film --> M["Search in movie list"]
-    L -- Person --> N["Search in cast list<br>(type=profile)"]
-    M --> O{"Images<br>Found?"}
-    N --> O
-    O -- No --> J
-    O -- Yes --> P["Get First Image Path"]
-    P --> Q["Return: image:{path}"]
-    J --> R{"More Entities<br>to Check?"}
-    R -- Yes --> G
-    R -- No --> S["Return: Apology Message"]
+flowchart LR
+    A["User Query"] --> B["Entity Extraction<br>(EntityExtractor)"]
+    B --> C["Filter to Films/Persons<br>(is_film or is_person)"]
+    C --> D{"Entity Results<br>Found?"}
+    D -- No --> E["Error: Entity not found"]
+    D -- Yes --> F["Loop: For Each Entity"]
+    F --> G["Get IMDb ID from KG<br>(graph.objects P345)"]
+    G --> H{"IMDb ID<br>Found?"}
+    H -- No --> I["Continue to<br>Next Entity"]
+    H -- Yes --> J["Search images.json<br>for IMDb ID"]
+    J --> K{"Entity Type?"}
+    K -- Film --> L["Search in movie list"]
+    K -- Person --> M["Search in cast list<br>(type=profile)"]
+    L --> N{"Images<br>Found?"}
+    M --> N
+    N -- No --> I
+    N -- Yes --> O["Get First Image Path"]
+    O --> P["Return: image:{path}"]
+    I --> Q{"More Entities<br>to Check?"}
+    Q -- Yes --> F
+    Q -- No --> R["Return: Apology Message"]
     
-    style A fill:#e1f5fe,color:#000000
+    style A fill:#fff3e0,color:#000000
     style B fill:#fff3e0,color:#000000
-    style C fill:#fff3e0,color:#000000
-    style D fill:#f3e5f5,color:#000000
-    style E fill:#fce4ec,color:#000000
-    style F fill:#ffcdd2,color:#000000
+    style C fill:#f3e5f5,color:#000000
+    style D fill:#fce4ec,color:#000000
+    style E fill:#ffcdd2,color:#000000
+    style F fill:#e1bee7,color:#000000
     style G fill:#e1bee7,color:#000000
-    style H fill:#e1bee7,color:#000000
-    style I fill:#fce4ec,color:#000000
-    style J fill:#fff9c4,color:#000000
-    style K fill:#e1bee7,color:#000000
-    style L fill:#fce4ec,color:#000000
+    style H fill:#fce4ec,color:#000000
+    style I fill:#fff9c4,color:#000000
+    style J fill:#e1bee7,color:#000000
+    style K fill:#fce4ec,color:#000000
+    style L fill:#c8e6c9,color:#000000
     style M fill:#c8e6c9,color:#000000
-    style N fill:#c8e6c9,color:#000000
-    style O fill:#fce4ec,color:#000000
-    style P fill:#c8e6c9,color:#000000
-    style Q fill:#b2dfdb,color:#000000
-    style R fill:#fce4ec,color:#000000
-    style S fill:#ffcdd2,color:#000000
+    style N fill:#fce4ec,color:#000000
+    style O fill:#c8e6c9,color:#000000
+    style P fill:#b2dfdb,color:#000000
+    style Q fill:#fce4ec,color:#000000
+    style R fill:#ffcdd2,color:#000000
 ```
 
 ---

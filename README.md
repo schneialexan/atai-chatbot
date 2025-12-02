@@ -611,27 +611,65 @@ flowchart LR
     style G fill:#81C784,color:#000000
 ```
 
-### LLM Usage in Recommendations (recommender.py)
+### LLM Usage in Normal Recommendations (recommender.py - format_recommendations)
 
 ```mermaid
 graph LR
-    A["TF-IDF Recommendations<br>(DataFrame)"] --> C["Prepare Structured Data<br>(JSON format)"]
-    B["CF Recommendations<br>(DataFrame)"] --> C
-    D["Common Traits<br>(List)"] --> C
-    E["User Query"] --> C
+    A["TF-IDF Recommendations<br>(DataFrame)"] --> C["Convert to Structured Dict<br>(title, item_id, similarity_score,<br>genres, directors, year)"]
+    B["CF Recommendations<br>(DataFrame)"] --> D["Convert to Structured Dict<br>(title, item_id, cf_similarity_score,<br>genres, directors, year)"]
+    E["Common Traits<br>(List)"] --> F["Prepare Structured Data<br>(JSON format)"]
+    G["User Query"] --> F
+    C --> F
+    D --> F
     
-    C --> F["PromptManager.get_prompt<br>('recommendation_formatter')"]
-    F --> G["LLM.generate_response<br>(formatted prompt)"]
-    G --> H["Natural Language Response<br>(Both recommendation types explained)"]
+    F --> H["PromptManager.get_prompt<br>('recommendation_formatter')"]
+    H --> I["LLM.generate_response<br>(formatted prompt)"]
+    I --> J{"Response<br>Success?"}
+    J -- Yes --> K{"Response Length<br>< 2000?"}
+    J -- No --> L["Simple Fallback<br>Formatting"]
+    K -- Yes --> M["Natural Language Response<br>(Both recommendation types explained)"]
+    K -- No --> L
     
     style A fill:#90CAF9,color:#000000
     style B fill:#90CAF9,color:#000000
-    style D fill:#A5D6A7,color:#000000
-    style E fill:#FFE0B2,color:#000000
     style C fill:#A5D6A7,color:#000000
+    style D fill:#A5D6A7,color:#000000
+    style E fill:#A5D6A7,color:#000000
+    style G fill:#FFE0B2,color:#000000
+    style F fill:#A5D6A7,color:#000000
+    style H fill:#CE93D8,color:#000000
+    style I fill:#90CAF9,color:#000000
+    style J fill:#FFAB91,color:#000000
+    style K fill:#FFAB91,color:#000000
+    style L fill:#FFF9C4,color:#000000
+    style M fill:#81C784,color:#000000
+```
+
+### LLM Usage in Fallback Recommendations (recommender.py - format_fallback_recommendations)
+
+```mermaid
+graph LR
+    A["Fallback Movies<br>(from KG traversal)"] --> B["Prepare Minimal Structured List<br>(title, item_id)"]
+    C["User Query"] --> B
+    
+    B --> D{"LLM Handler<br>Available?"}
+    D -- No --> E["Simple Fallback<br>Formatting"]
+    D -- Yes --> F["PromptManager.get_prompt<br>('fallback_recommendation_formatter')"]
+    
+    F --> G["LLM.generate_response<br>(formatted prompt)"]
+    G --> H{"Response<br>Success & < 2000?"}
+    H -- Yes --> I["Natural Language Response<br>(KG-based recommendations)"]
+    H -- No --> E
+    
+    style A fill:#90CAF9,color:#000000
+    style C fill:#FFE0B2,color:#000000
+    style B fill:#A5D6A7,color:#000000
+    style D fill:#FFAB91,color:#000000
     style F fill:#CE93D8,color:#000000
     style G fill:#90CAF9,color:#000000
-    style H fill:#81C784,color:#000000
+    style H fill:#FFAB91,color:#000000
+    style E fill:#FFF9C4,color:#000000
+    style I fill:#81C784,color:#000000
 ```
 
 ### Multimedia Handler Pipeline (multimedia_handler.py)

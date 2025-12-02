@@ -552,20 +552,48 @@ flowchart LR
     style Q fill:#81C784,color:#000000
 ```
 
-### LLM Usage in Factual QA (qa_handler.py)
+### LLM Usage in QA Answer Formatting (qa_handler.py - format_answer)
 
 ```mermaid
 graph LR
-    A["SPARQL Query Results<br>(Raw Data)"] --> B["Prepare Raw Data<br>(answers, metadata)"]
-    B --> C["PromptManager.get_prompt<br>('qa_formatter')"]
-    C --> D["LLM.generate_response<br>(formatted prompt)"]
-    D --> E["Natural Language Answer"]
+    A["SPARQL/Embedding Results<br>(List of Dicts)"] --> B{"Results<br>Error?"}
+    B -- Yes --> C["Return Error Message"]
+    B -- No --> D["Extract Answers<br>(answerLabel or answerItem)"]
+    D --> E{"Answers<br>Found?"}
+    E -- No --> F["Return No Answer Message"]
+    E -- Yes --> G["Remove Duplicates<br>(Preserve Order)"]
+    G --> H["Prepare Raw Data Dict<br>(answers, answers_count,<br>question_entity_metadata)"]
+    I["User Question"] --> H
+    H --> J["PromptManager.get_prompt<br>('qa_formatter')"]
+    J --> K["LLM.generate_response<br>(formatted prompt)"]
+    K --> L{"Response<br>Success?"}
+    L -- No --> M["Simple Fallback<br>Formatting<br>(Join answers)"]
+    L -- Yes --> N{"Submode?"}
+    N -- Factual --> O["Return: 'Based on my<br>knowledge graph: ' + content"]
+    N -- Embedding --> P{"Single Answer<br>Found?"}
+    P -- Yes --> Q["Get Type from KG<br>(P31 property)"]
+    Q --> R["Return: 'Based on my<br>embeddings: ' + content + type"]
+    P -- No --> S["Return: 'Based on my<br>embeddings: ' + content"]
     
-    style A fill:#FFCC80,color:#000000
-    style B fill:#A5D6A7,color:#000000
-    style C fill:#CE93D8,color:#000000
-    style D fill:#90CAF9,color:#000000
-    style E fill:#81C784,color:#000000
+    style A fill:#90CAF9,color:#000000
+    style B fill:#FFAB91,color:#000000
+    style C fill:#EF9A9A,color:#000000
+    style D fill:#A5D6A7,color:#000000
+    style E fill:#FFAB91,color:#000000
+    style F fill:#EF9A9A,color:#000000
+    style G fill:#A5D6A7,color:#000000
+    style H fill:#A5D6A7,color:#000000
+    style I fill:#FFE0B2,color:#000000
+    style J fill:#CE93D8,color:#000000
+    style K fill:#90CAF9,color:#000000
+    style L fill:#FFAB91,color:#000000
+    style M fill:#FFF9C4,color:#000000
+    style N fill:#FFAB91,color:#000000
+    style O fill:#81C784,color:#000000
+    style P fill:#FFAB91,color:#000000
+    style Q fill:#90CAF9,color:#000000
+    style R fill:#81C784,color:#000000
+    style S fill:#81C784,color:#000000
 ```
 
 ### Recommendation Handler Pipeline (recommender.py)

@@ -354,14 +354,26 @@ graph TD
     S[Session Management] --> L
     T[Event Logging] --> L
     
-    style A fill:#e1f5fe,color:#000000
-    style J fill:#e1f5fe,color:#000000
-    style C fill:#e8f5e8,color:#000000
-    style D fill:#e8f5e8,color:#000000
-    style E fill:#fff3e0,color:#000000
-    style F fill:#fce4ec,color:#000000
-    style L fill:#e8f5e8,color:#000000
-    style M fill:#fff3e0,color:#000000
+    style A fill:#BBDEFB,color:#000000
+    style J fill:#BBDEFB,color:#000000
+    style B fill:#E1BEE7,color:#000000
+    style K fill:#E1BEE7,color:#000000
+    style C fill:#C5CAE9,color:#000000
+    style D fill:#C5CAE9,color:#000000
+    style L fill:#C5CAE9,color:#000000
+    style E fill:#B39DDB,color:#000000
+    style M fill:#B39DDB,color:#000000
+    style F fill:#B39DDB,color:#000000
+    style G fill:#9FA8DA,color:#000000
+    style H fill:#9FA8DA,color:#000000
+    style N fill:#9FA8DA,color:#000000
+    style O fill:#9FA8DA,color:#000000
+    style I fill:#7986CB,color:#000000
+    style P fill:#7986CB,color:#000000
+    style Q fill:#E1BEE7,color:#000000
+    style R fill:#E1BEE7,color:#000000
+    style S fill:#E1BEE7,color:#000000
+    style T fill:#E1BEE7,color:#000000
 ```
 
 ### High-Level App Core Architecture (core.py)
@@ -404,12 +416,32 @@ graph TD
     V --> W
     R --> W
     
-    style A fill:#e1f5fe,color:#000000
-    style G fill:#e1f5fe,color:#000000
-    style H fill:#e8f5e8,color:#000000
-    style I fill:#fff3e0,color:#000000
-    style N fill:#fce4ec,color:#000000
-    style O fill:#f3e5f5,color:#000000
+    style A fill:#BBDEFB,color:#000000
+    style G fill:#BBDEFB,color:#000000
+    style B fill:#C5CAE9,color:#000000
+    style C fill:#C5CAE9,color:#000000
+    style D fill:#C5CAE9,color:#000000
+    style E fill:#C5CAE9,color:#000000
+    style F fill:#C5CAE9,color:#000000
+    style H fill:#C5CAE9,color:#000000
+    style I fill:#B39DDB,color:#000000
+    style J fill:#9FA8DA,color:#000000
+    style K fill:#9FA8DA,color:#000000
+    style K1 fill:#B39DDB,color:#000000
+    style K2 fill:#9FA8DA,color:#000000
+    style K3 fill:#9FA8DA,color:#000000
+    style L fill:#9FA8DA,color:#000000
+    style M fill:#9FA8DA,color:#000000
+    style N fill:#B39DDB,color:#000000
+    style O fill:#E1BEE7,color:#000000
+    style P fill:#E1BEE7,color:#000000
+    style Q fill:#E1BEE7,color:#000000
+    style R fill:#9FA8DA,color:#000000
+    style S fill:#9FA8DA,color:#000000
+    style T fill:#9FA8DA,color:#000000
+    style U fill:#9FA8DA,color:#000000
+    style V fill:#9FA8DA,color:#000000
+    style W fill:#7986CB,color:#000000
 ```
 
 ### High-Level Knowledge Graph Handler (kg_handler.py)
@@ -438,73 +470,28 @@ graph TD
     U --> V[Extract Types & Descriptions]
     V --> W[Return Metadata]
     
-    style A fill:#e1f5fe,color:#000000
-    style E fill:#e1f5fe,color:#000000
-    style K fill:#e1f5fe,color:#000000
-    style P fill:#e1f5fe,color:#000000
-    style T fill:#e1f5fe,color:#000000
-    style F fill:#e8f5e8,color:#000000
-    style L fill:#e8f5e8,color:#000000
-    style Q fill:#e8f5e8,color:#000000
-    style U fill:#e8f5e8,color:#000000
-```
-
-### QA Handler Pipeline (qa_handler.py)
-
-```mermaid
-flowchart LR
-    C["Extract Entities"] --> D["NER Extraction"] & E["Difficult Entities Pattern Matching"]
-    E --> I["Collect Potential Entity-Property Candidates"]
-    I --> J{"Candidates Found?"}
-    J -- No --> K@{ label: "<span style=\"background-color:\">Brute Force Entity and Property Extraction Fallback</span>" }
-    J -- Yes --> L["Select Best Entity"]
-    P{"Candidates Found?"} -- No --> Q["No Entities Error"]
-    P -- Yes --> L
-    L --> R{"Submode?"}
-    R -- Factual --> S["Factual: Execute SPARQL Query"]
-    R -- Embedding --> W["Compute Query Embedding<br>entity + relation"]
-    S --> U["Retrieve Answer from KG"]
-    W --> X["Find Most Similar Entity<br>Pairwise Distance"]
-    U --> Y["Format Answer with LLM"]
-    X --> Y
-    Y --> Z["Natural Language Response"]
-    K --> P
-    A["User Question"] --> C
-    D --> I
-
-    K@{ shape: rect}
-    style C fill:#fff3e0,color:#000000
-    style D fill:#fff3e0,color:#000000
-    style E fill:#fff3e0,color:#000000
-    style I fill:#f3e5f5,color:#000000
-    style J fill:#fce4ec,color:#000000
-    style K fill:#ffebee,color:#000000
-    style L fill:#f3e5f5,color:#000000
-    style Q fill:#ffcdd2,color:#000000
-    style R fill:#e1bee7,color:#000000
-    style S fill:#c8e6c9,color:#000000
-    style W fill:#c8e6c9,color:#000000
-    style U fill:#c8e6c9,color:#000000
-    style X fill:#c8e6c9,color:#000000
-    style Y fill:#e8f5e8,color:#000000
-    style Z fill:#b2dfdb,color:#000000
-    style A fill:#e1f5fe,color:#000000
-```
-
-### LLM Usage in Factual QA (qa_handler.py)
-
-```mermaid
-graph LR
-    A["SPARQL Query Results<br>(Raw Data)"] --> B["Prepare Raw Data<br>(answers, metadata)"]
-    B --> C["PromptManager.get_prompt<br>('qa_formatter')"]
-    C --> D["LLM.generate_response<br>(formatted prompt)"]
-    D --> E["Natural Language Answer"]
-    
-    style A fill:#fff3e0,color:#000000
-    style B fill:#f3e5f5,color:#000000
-    style C fill:#e1bee7,color:#000000
-    style D fill:#c8e6c9,color:#000000
-    style E fill:#b2dfdb,color:#000000
+    style A fill:#BBDEFB,color:#000000
+    style E fill:#BBDEFB,color:#000000
+    style K fill:#BBDEFB,color:#000000
+    style P fill:#BBDEFB,color:#000000
+    style T fill:#BBDEFB,color:#000000
+    style B fill:#C5CAE9,color:#000000
+    style C fill:#C5CAE9,color:#000000
+    style D fill:#C5CAE9,color:#000000
+    style F fill:#C5CAE9,color:#000000
+    style G fill:#B39DDB,color:#000000
+    style H fill:#9FA8DA,color:#000000
+    style I fill:#9FA8DA,color:#000000
+    style J fill:#7986CB,color:#000000
+    style L fill:#C5CAE9,color:#000000
+    style M fill:#9FA8DA,color:#000000
+    style O fill:#7986CB,color:#000000
+    style Q fill:#C5CAE9,color:#000000
+    style R fill:#9FA8DA,color:#000000
+    style S fill:#7986CB,color:#000000
+    style U fill:#C5CAE9,color:#000000
+    style V fill:#9FA8DA,color:#000000
+    style W fill:#7986CB,color:#000000
 ```
 
 ### LLM Usage in Intent Classification (core.py)
@@ -516,11 +503,69 @@ graph LR
     C --> D["Extract Intent<br>(sparql_query, factual_question, etc.)"]
     D --> E["Route to Handler<br>(KG, QA, Recommender, Multimedia)"]
     
-    style A fill:#e1f5fe,color:#000000
-    style B fill:#e1bee7,color:#000000
-    style C fill:#c8e6c9,color:#000000
-    style D fill:#fff3e0,color:#000000
-    style E fill:#f3e5f5,color:#000000
+    style A fill:#BBDEFB,color:#000000
+    style B fill:#E1BEE7,color:#000000
+    style C fill:#9FA8DA,color:#000000
+    style D fill:#B39DDB,color:#000000
+    style E fill:#7986CB,color:#000000
+```
+
+### QA Handler Pipeline (qa_handler.py)
+
+```mermaid
+flowchart LR
+    A["User Question"] --> B["Entity Extraction<br>(EntityExtractor)"]
+    B --> C["NER Extraction"] & D["Difficult Entities Pattern Matching"]
+    C --> E["Collect Potential Entity-Property Candidates"]
+    D --> E
+    E --> F{"Candidates Found?"}
+    F -- No --> G["Brute Force Entity and Property Extraction Fallback"]
+    F -- Yes --> H["Select Best Entity"]
+    G --> I{"Candidates Found?"}
+    I -- No --> J["No Entities Error"]
+    I -- Yes --> H
+    H --> K{"Submode?"}
+    K -- Factual --> L["Factual: Execute SPARQL Query"]
+    K -- Embedding --> M["Compute Query Embedding<br>entity + relation"]
+    L --> N["Retrieve Answer from KG"]
+    M --> O["Find Most Similar Entity<br>Pairwise Distance"]
+    N --> P["Format Answer with LLM"]
+    O --> P
+    P --> Q["Natural Language Response"]
+
+    style A fill:#FFE0B2,color:#000000
+    style B fill:#FFCC80,color:#000000
+    style C fill:#FFCC80,color:#000000
+    style D fill:#FFCC80,color:#000000
+    style E fill:#A5D6A7,color:#000000
+    style F fill:#FFAB91,color:#000000
+    style G fill:#FFCC80,color:#000000
+    style H fill:#A5D6A7,color:#000000
+    style I fill:#FFAB91,color:#000000
+    style J fill:#EF9A9A,color:#000000
+    style K fill:#CE93D8,color:#000000
+    style L fill:#90CAF9,color:#000000
+    style M fill:#90CAF9,color:#000000
+    style N fill:#90CAF9,color:#000000
+    style O fill:#90CAF9,color:#000000
+    style P fill:#CE93D8,color:#000000
+    style Q fill:#81C784,color:#000000
+```
+
+### LLM Usage in Factual QA (qa_handler.py)
+
+```mermaid
+graph LR
+    A["SPARQL Query Results<br>(Raw Data)"] --> B["Prepare Raw Data<br>(answers, metadata)"]
+    B --> C["PromptManager.get_prompt<br>('qa_formatter')"]
+    C --> D["LLM.generate_response<br>(formatted prompt)"]
+    D --> E["Natural Language Answer"]
+    
+    style A fill:#FFCC80,color:#000000
+    style B fill:#A5D6A7,color:#000000
+    style C fill:#CE93D8,color:#000000
+    style D fill:#90CAF9,color:#000000
+    style E fill:#81C784,color:#000000
 ```
 
 ### Recommendation Handler Pipeline (recommender.py)
@@ -548,22 +593,22 @@ flowchart LR
     F --> G["Natural Language<br>Response"]
     J --> G
     
-    style A fill:#e1f5fe,color:#000000
-    style B1 fill:#fff3e0,color:#000000
-    style B2 fill:#fff3e0,color:#000000
-    style C fill:#f3e5f5,color:#000000
-    style D1 fill:#e1bee7,color:#000000
-    style D2 fill:#e1bee7,color:#000000
-    style D3 fill:#e1bee7,color:#000000
-    style D4 fill:#e1bee7,color:#000000
-    style D5 fill:#e1bee7,color:#000000
-    style D fill:#e1bee7,color:#000000
-    style E fill:#e1bee7,color:#000000
-    style H fill:#fce4ec,color:#000000
-    style I fill:#e1bee7,color:#000000
-    style J fill:#e8f5e8,color:#000000
-    style F fill:#e8f5e8,color:#000000
-    style G fill:#b2dfdb,color:#000000
+    style A fill:#FFE0B2,color:#000000
+    style B1 fill:#FFCC80,color:#000000
+    style B2 fill:#FFCC80,color:#000000
+    style C fill:#A5D6A7,color:#000000
+    style D1 fill:#90CAF9,color:#000000
+    style D2 fill:#90CAF9,color:#000000
+    style D3 fill:#90CAF9,color:#000000
+    style D4 fill:#90CAF9,color:#000000
+    style D5 fill:#90CAF9,color:#000000
+    style D fill:#90CAF9,color:#000000
+    style E fill:#90CAF9,color:#000000
+    style H fill:#FFAB91,color:#000000
+    style I fill:#90CAF9,color:#000000
+    style J fill:#CE93D8,color:#000000
+    style F fill:#CE93D8,color:#000000
+    style G fill:#81C784,color:#000000
 ```
 
 ### LLM Usage in Recommendations (recommender.py)
@@ -579,14 +624,14 @@ graph LR
     F --> G["LLM.generate_response<br>(formatted prompt)"]
     G --> H["Natural Language Response<br>(Both recommendation types explained)"]
     
-    style A fill:#e1bee7,color:#000000
-    style B fill:#e1bee7,color:#000000
-    style D fill:#f3e5f5,color:#000000
-    style E fill:#e1f5fe,color:#000000
-    style C fill:#f3e5f5,color:#000000
-    style F fill:#e1bee7,color:#000000
-    style G fill:#c8e6c9,color:#000000
-    style H fill:#b2dfdb,color:#000000
+    style A fill:#90CAF9,color:#000000
+    style B fill:#90CAF9,color:#000000
+    style D fill:#A5D6A7,color:#000000
+    style E fill:#FFE0B2,color:#000000
+    style C fill:#A5D6A7,color:#000000
+    style F fill:#CE93D8,color:#000000
+    style G fill:#90CAF9,color:#000000
+    style H fill:#81C784,color:#000000
 ```
 
 ### Multimedia Handler Pipeline (multimedia_handler.py)
@@ -614,24 +659,24 @@ flowchart LR
     Q -- Yes --> F
     Q -- No --> R["Return: Apology Message"]
     
-    style A fill:#fff3e0,color:#000000
-    style B fill:#fff3e0,color:#000000
-    style C fill:#f3e5f5,color:#000000
-    style D fill:#fce4ec,color:#000000
-    style E fill:#ffcdd2,color:#000000
-    style F fill:#e1bee7,color:#000000
-    style G fill:#e1bee7,color:#000000
-    style H fill:#fce4ec,color:#000000
-    style I fill:#fff9c4,color:#000000
-    style J fill:#e1bee7,color:#000000
-    style K fill:#fce4ec,color:#000000
-    style L fill:#c8e6c9,color:#000000
-    style M fill:#c8e6c9,color:#000000
-    style N fill:#fce4ec,color:#000000
-    style O fill:#c8e6c9,color:#000000
-    style P fill:#b2dfdb,color:#000000
-    style Q fill:#fce4ec,color:#000000
-    style R fill:#ffcdd2,color:#000000
+    style A fill:#FFE0B2,color:#000000
+    style B fill:#FFCC80,color:#000000
+    style C fill:#A5D6A7,color:#000000
+    style D fill:#FFAB91,color:#000000
+    style E fill:#EF9A9A,color:#000000
+    style F fill:#90CAF9,color:#000000
+    style G fill:#90CAF9,color:#000000
+    style H fill:#FFAB91,color:#000000
+    style I fill:#FFF9C4,color:#000000
+    style J fill:#90CAF9,color:#000000
+    style K fill:#FFAB91,color:#000000
+    style L fill:#90CAF9,color:#000000
+    style M fill:#90CAF9,color:#000000
+    style N fill:#FFAB91,color:#000000
+    style O fill:#90CAF9,color:#000000
+    style P fill:#81C784,color:#000000
+    style Q fill:#FFAB91,color:#000000
+    style R fill:#EF9A9A,color:#000000
 ```
 
 ---

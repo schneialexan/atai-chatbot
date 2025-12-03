@@ -151,7 +151,7 @@ class App:
         elif "recommend" in message.lower() or "i like" in message.lower():
             return self._get_recommender().recommend(message)
         # Check if the message is a multimedia question
-        elif "picture" in message.lower() or "image" in message.lower() or "look like" in message.lower():
+        elif "picture" in message.lower() or "image" in message.lower() or "look like" in message.lower() or "show" in message.lower() or "poster" in message.lower():
             return self._get_multimedia().get_image(message)
         else:
             print("Using LLM to classify intent")

@@ -276,9 +276,12 @@ class MultimediaHandler:
             
             # Found a valid image, return it
             image_path = random.choice(matching_images) if return_random_image else matching_images[0]
-            result = f"image:{image_path}"
-            
+
             print(f"[Multimedia Handler] Returning image https://files.ifi.uzh.ch/ddis/teaching/2025/ATAI/dataset/images/{image_path}")
+            
+            image_path_no_ext = re.sub(r'\.[^.]*$', '', image_path)
+            result = f"image:{image_path_no_ext}"
+            
             return result
         
         # If we get here, no valid image was found for any entity

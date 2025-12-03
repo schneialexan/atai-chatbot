@@ -30,27 +30,27 @@ class TestMultimediaHandler(unittest.TestCase):
         test_cases = [
             {
                 "question": "Show me a picture of Halle Berry.",
-                "expected": "image:0344/9aLI0LSi7cbieyiskOdsBaneKmp.jpg"
+                "expected": "image:0344/9aLI0LSi7cbieyiskOdsBaneKmp"
             },
             {
                 "question": "What does Denzel Washington look like?",
-                "expected": "image:0278/393wX9AGWpseVqojQDPLy3bTBia.jpg"
+                "expected": "image:0278/393wX9AGWpseVqojQDPLy3bTBia"
             },
             {
                 "question": "Let me know what Sandra Bullock looks like.",
-                "expected": "image:0249/hPHGKPAWZ8gArYXMk225rrYPoyJ.jpg"
+                "expected": "image:0249/hPHGKPAWZ8gArYXMk225rrYPoyJ"
             },
             {
                 "question": "Let me know how the cover of Interstellar looks like.",
-                "expected": "image:0055/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg"
+                "expected": "image:0055/gEU2QniE6E77NI6lCU6MxlNBvIx"
             },
             {
                 "question": "Let me know how the cover of Forrest Gump looks like.",
-                "expected": "image:0077/zxzYh2YtgypKrijVE0OuIyEgwdT.jpg"
+                "expected": "image:0077/zxzYh2YtgypKrijVE0OuIyEgwdT"
             },
             {
                 "question": "Show me the picture of the film The Hobbit: The Desolation of Smaug!",
-                "expected": "image:0147/xQYiXsheRCDBA39DOrmaw1aSpbk.jpg"
+                "expected": "image:0147/xQYiXsheRCDBA39DOrmaw1aSpbk"
             },
         ]
 

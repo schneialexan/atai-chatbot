@@ -58,7 +58,7 @@ class TestMovieRecommendations(unittest.TestCase):
             },
             {
                 "question": "What other movies in Japanese do you recommend? I liked Twin Sisters of Kyoto.",
-                "expected": "Tōru Takemitsu"
+                "expected": "Portrait of Chieko"
             },
             {
                 "question": "Can you recommend some biographical movies given that I like Meryl Streep?",
@@ -66,7 +66,7 @@ class TestMovieRecommendations(unittest.TestCase):
             },
             {
                 "question": "I really enjoy movies featuring Tom Hanks, what would you recommend?",
-                "expected": "Forrest Gump"
+                "expected": "A League of Their Own"
             },
             {
                 "question": "Can you give me some films connected to Leonardo DiCaprio?",

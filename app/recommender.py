@@ -105,6 +105,67 @@ TYPE_TO_CLASSES = {
     },
 }
 
+TYPE_TO_PROPERTIES = {
+    "film": {
+        WDT.P57,   # director
+        WDT.P161,  # cast member / actor
+        WDT.P364,  # original language of film or TV show
+        WDT.P136,  # film genre
+        WDT.P495,  # country of origin
+        WDT.P272,  # production company
+    },
+
+    "director": {
+        WDT.P57,   # director of (reverse usage: films directed)
+        WDT.P94,   # sound designer
+        WDT.P162,  # producer
+        WDT.P1040, # film editor
+    },
+
+    "actor": {
+        WDT.P161,  # cast member (reverse: films acted in)
+        WDT.P453,  # character role
+    },
+
+    "author": {
+        WDT.P50,   # author
+        WDT.P577,  # publication date
+        WDT.P364,  # language of work
+        WDT.P136,  # genre
+    },
+
+    "genre": {
+        WDT.P136,  # genre relationship
+        WDT.P279,  # subclass of
+    },
+
+    "language": {
+        WDT.P37,     # official language
+        WDT.P364,    # language of work or name
+        WDT.P424,    # Wikimedia language code
+        WDT.P2936,   # language used
+    },
+
+    "country": {
+        WDT.P495,   # country of origin
+        WDT.P17,    # country
+        WDT.P27,    # country of citizenship (for people)
+    },
+
+    "studio": {
+        WDT.P272,   # production company
+        WDT.P176,   # producer
+        WDT.P127,   # owned by
+        WDT.P112,   # founded by
+    },
+
+    "designer": {
+        WDT.P84,    # architect (if relevant)
+        WDT.P2554,  # production designer
+        WDT.P136,   # genre of work designed
+    },
+}
+
 
 # RELATIONAL props to follow (relational navigation)
 RELATIONAL_PROPS = [
@@ -1278,7 +1339,7 @@ class MovieRecommender:
 
         if self.llm_handler is None or self.prompt_manager is None:
             # Simple fallback formatting
-            result = "I couldn’t find direct recommendations, but here are movies related to what you mentioned:\n\n"
+            result = "I couldn't find direct recommendations, but here are movies related to what you mentioned:\n\n"
             for m in fallback_movies:
                 result += f"- {m['title']}\n"
             return result
@@ -1368,29 +1429,54 @@ class MovieRecommender:
         cf_recs = pd.DataFrame()
         
         try:
-            tfidf_recs = self.get_tfidf_recommendations_by_uri(selected_uris, common_traits, top_n=15)
+            tfidf_recs = self.get_tfidf_recommendations_by_uri(selected_uris, common_traits, top_n=50)
             print(f"[Movie Recommender] TF-IDF recommendations: {tfidf_recs}")
         except Exception as e:
             print(f"[Movie Recommender] Warning: TF-IDF recommendations failed: {e}")
         
         try:
-            cf_recs = self.get_collaborative_filtering_recommendations(selected_uris, top_n=15)
+            cf_recs = self.get_collaborative_filtering_recommendations(selected_uris, top_n=5)
             print(f"[Movie Recommender] Collaborative filtering recommendations: {cf_recs}")
         except Exception as e:
             print(f"[Movie Recommender] Warning: Collaborative filtering recommendations failed: {e}")
             
         # 6. Fallback if both TF-IDF and CF fail
-        if tfidf_recs.empty and cf_recs.empty:
+        if tfidf_recs.empty and cf_recs.empty and any(group for group in other_candidates):
             print("[Movie Recommender] No TF-IDF or CF results. Fallback: Searching KG for connected movies.")
             fallback = self.get_fallback_movies(other_candidates, limit=10)
             if not fallback:
                 return "I couldn't find any related movies in the database."
             return self.format_fallback_recommendations(fallback, message)
-        elif not all(not group for group in other_candidates):
+        elif not (tfidf_recs.empty or cf_recs.empty) and not all(not group for group in other_candidates):
             print(f"[Movie Recommender] Filtering found: {other_candidates}")
+            for candidate in other_candidates:
+                if len(candidate)==0:
+                    continue
+                lbl = self.get_label_safe(candidate[0])
+                category = next((cat for cat, allowed in TYPE_TO_CLASSES.items() if self.get_types(candidate) & allowed), None)
+                category_types = TYPE_TO_PROPERTIES[category]
+                print(f"[Movie Recommender] Filtering for: '{lbl}' in category: '{category}'")
+                def row_matches_type(row):
+                    movie_uri = row["item_id"]
+                    # get the labels from the properties in the "category_types" var
+                    # compare the labels from the movie url against the lbl and return true if it matches
+                    # For each property relevant to the category:
+                    labels = []
+                    for prop in category_types:
+                        movie_uri = rdflib.URIRef(movie_uri)
+                        print(f"{movie_uri}: {prop}")
+                        for obj in self.kg_handler.graph.objects(movie_uri, prop):
+                            obj_label = self.get_label_safe(obj)
+                            labels.append(obj_label)
+                    return any(label.lower() == lbl.lower() for label in labels)
+
+                tfidf_recs = tfidf_recs[tfidf_recs.apply(row_matches_type, axis=1)]
+            tfidf_recs = tfidf_recs.sort_values("similarity_score", ascending=False)
+            print(f"[Movie Recommender] Filtered TFIDF Recs:\n{tfidf_recs}")
         else:
             print(f"[Movie Recommender] No filter found.")
 
+        tfidf_recs = tfidf_recs.head(5)
         # 7. Format and return recommendations
         if tfidf_recs.empty and cf_recs.empty:
             return "I couldn't find any recommendations based on your preferences. Please try with different movies."

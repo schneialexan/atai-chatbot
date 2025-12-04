@@ -645,40 +645,50 @@ class MovieRecommender:
         p106 = set(self.kg_handler.graph.objects(uri, WDT.P106))
         return p31 | p106
 
-    def score_categories(self, candidates):
+    def score_categories_for_group(self, group):
+        """Score categories for a single group of URIs."""
         scores = {cat: 0 for cat in TYPE_TO_CLASSES}
 
-        for group in candidates:
-            for uri in group:
-                types = self.get_types(uri)
-                for cat, allowed in TYPE_TO_CLASSES.items():
-                    if types & allowed:
-                        scores[cat] += 1
+        for uri in group:
+            types = self.get_types(uri)
+            for cat, allowed in TYPE_TO_CLASSES.items():
+                if types & allowed:
+                    scores[cat] += 1
 
-        return scores
-
-    def infer_best_category(self, candidates):
-        scores = self.score_categories(candidates)
         best_cat = max(scores, key=lambda c: scores[c])
         return best_cat, scores
 
-    def filter_candidates(self, candidates):
-        best_cat, scores = self.infer_best_category(candidates)
-        allowed = TYPE_TO_CLASSES[best_cat]
-
-        selected = []
+    def filter_and_split_candidates(self, candidates):
+        """
+        For each group, split URIs into 'film_only' and 'others' lists of lists.
+        """
+        film_only = []
+        others = []
 
         for group in candidates:
-            ent_list = []
-            for uri in group:
-                types = self.get_types(uri)
-                if types & allowed:
-                    ent_list.append(uri)
-            selected.append(ent_list)
+            if not group:
+                film_only.append([])
+                others.append([])
+                continue
 
-        print("[FILTER-CANDIDATES] Category scores:", scores)
-        print("[FILTER-CANDIDATES] Selected category:", best_cat)
-        return selected
+            best_cat, scores = self.score_categories_for_group(group)
+            allowed = TYPE_TO_CLASSES[best_cat]
+            filtered_uris = [uri for uri in group if self.get_types(uri) & allowed]
+
+            # Split into film_only vs others
+            film_group = [uri for uri in filtered_uris if self.get_types(uri) & TYPE_TO_CLASSES.get("film", set())]
+            other_group = [uri for uri in filtered_uris if uri not in film_group]
+
+            film_only.append(film_group)
+            others.append(other_group)
+
+            print("Group category scores:", scores)
+            print("Group selected category:", best_cat)
+            print("Film URIs:", film_group)
+            print("Other URIs:", other_group)
+
+        return film_only, others
+
     
     def clean_type_labels(self, types):
         """Convert types (URIs) into a clean sorted label list."""
@@ -1229,9 +1239,6 @@ class MovieRecommender:
         Fallback method: if TF-IDF and CF produce no recommendations,
         return a list of movies directly connected to the selected entities.
         """
-
-        print("[Fallback] No TF-IDF or CF results. Searching KG for connected movies...")
-
         fallback_movies = []
 
         for uri in selected_uris:
@@ -1339,19 +1346,17 @@ class MovieRecommender:
         _question_with_no_entities, matched_candidates = self.match_and_remove_entities(message, candidates, threshold=0.7)
         print(matched_candidates)
         # 2(b). select the correct uris/entites from all possible candidates
-        selected_candidates = self.filter_candidates(matched_candidates)
-        self.print_entities(matched_candidates, selected_candidates)
+        film_candidates, other_candidates = self.filter_and_split_candidates(matched_candidates)
+        self.print_entities(matched_candidates, film_candidates)
+        self.print_entities(matched_candidates, other_candidates)
         
         # Flatten selected candidates to get list of URIs
         selected_uris = []
-        for group in selected_candidates:
+        for group in film_candidates:
             selected_uris.extend(group)
         
-        if not selected_uris:
-            return "I couldn't find any valid movies in my database. Please try with different movie titles."
-        
         # 3(a). get the "context" / common traits
-        common_traits = self.infer_common_traits_structured(selected_candidates, min_count=1, depth=3)
+        common_traits = self.infer_common_traits_structured(film_candidates, min_count=1, depth=3)
         self.print_common_traits(common_traits, top_n=5, max_sources_per_line=3)
         
         # 4. Check if models are initialized
@@ -1363,23 +1368,28 @@ class MovieRecommender:
         cf_recs = pd.DataFrame()
         
         try:
-            tfidf_recs = self.get_tfidf_recommendations_by_uri(selected_uris, common_traits, top_n=5)
+            tfidf_recs = self.get_tfidf_recommendations_by_uri(selected_uris, common_traits, top_n=15)
             print(f"[Movie Recommender] TF-IDF recommendations: {tfidf_recs}")
         except Exception as e:
             print(f"[Movie Recommender] Warning: TF-IDF recommendations failed: {e}")
         
         try:
-            cf_recs = self.get_collaborative_filtering_recommendations(selected_uris, top_n=5)
+            cf_recs = self.get_collaborative_filtering_recommendations(selected_uris, top_n=15)
             print(f"[Movie Recommender] Collaborative filtering recommendations: {cf_recs}")
         except Exception as e:
             print(f"[Movie Recommender] Warning: Collaborative filtering recommendations failed: {e}")
             
         # 6. Fallback if both TF-IDF and CF fail
         if tfidf_recs.empty and cf_recs.empty:
-            fallback = self.get_fallback_movies(selected_uris, limit=10)
+            print("[Movie Recommender] No TF-IDF or CF results. Fallback: Searching KG for connected movies.")
+            fallback = self.get_fallback_movies(other_candidates, limit=10)
             if not fallback:
                 return "I couldn't find any related movies in the database."
             return self.format_fallback_recommendations(fallback, message)
+        elif not all(not group for group in other_candidates):
+            print(f"[Movie Recommender] Filtering found: {other_candidates}")
+        else:
+            print(f"[Movie Recommender] No filter found.")
 
         # 7. Format and return recommendations
         if tfidf_recs.empty and cf_recs.empty:

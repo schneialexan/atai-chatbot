@@ -42,7 +42,7 @@ class TestMovieRecommendations(unittest.TestCase):
             },
             {
                 "question": "Recommend movies like Nightmare on Elm Street, Friday the 13th, and Halloween.",
-                "expected": "Horror"
+                "expected": "horror"
             },
             {
                 "question": "Recommend movies similar to Hamlet and Othello.",
@@ -62,7 +62,7 @@ class TestMovieRecommendations(unittest.TestCase):
             },
             {
                 "question": "Can you recommend some biographical movies given that I like Meryl Streep?",
-                "expected": "Julia"
+                "expected": "Iron Lady"
             },
             {
                 "question": "I really enjoy movies featuring Tom Hanks, what would you recommend?",

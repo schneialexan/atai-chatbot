@@ -52,16 +52,59 @@ MOVIE_PROPS = [
 ]
 
 TYPE_TO_CLASSES = {
-    "film":        {WD.Q11424, WD.Q202866, WD.Q24856},
-    "director":    {WD.Q2526255},            # film director
-    "actor":       {WD.Q33999},              # film actor/actress
-    "author":      {WD.Q36180, WD.Q49757},   # writer, playwright
-    "genre":       {WD.Q201658, WD.Q223393}, # film/art genres
-    "language":    {WD.Q34770},
-    "country":     {WD.Q6256},
-    "studio":      {WD.Q1762059, WD.Q43229, WD.Q4830453},
-    "designer":    {WD.Q3282637},            # costume designer (Colleen Atwood)
+    "film": {
+        WD.Q11424,    # film
+        WD.Q202866,   # feature film
+        WD.Q24856,    # short film
+        WD.Q19020,    # movie
+        WD.Q265027,   # animated film
+        WD.Q1570697,  # documentary film
+        WD.Q44578,    # silent film
+    },
+    "director": {
+        WD.Q2526255,  # film director
+        WD.Q3455803,  # television director
+        WD.Q3455806,  # stage director
+    },
+    "actor": {
+        WD.Q33999,    # film actor / actress
+        WD.Q10798782, # voice actor
+        WD.Q10800557, # television actor
+    },
+    "author": {
+        WD.Q36180,    # writer
+        WD.Q49757,    # playwright
+        WD.Q6625963,  # novelist
+        WD.Q1930187,  # journalist
+    },
+    "genre": {
+        WD.Q201658,   # film genre
+        WD.Q223393,   # art genre
+        WD.Q201247,   # literary genre
+    },
+    "language": {
+        WD.Q34770,       # natural language
+        WD.Q33472,       # modern language
+        WD.Q1288568,     # constructed language
+        WD.Q9186,        # ancient language
+    },
+    "country": {
+        WD.Q6256,       # country
+        WD.Q3624078,    # sovereign state
+        WD.Q3024240,    # nation-state
+    },
+    "studio": {
+        WD.Q1762059,    # film studio
+        WD.Q43229,      # company
+        WD.Q4830453,    # production company
+        WD.Q160659,     # animation studio
+    },
+    "designer": {
+        WD.Q3282637,    # costume designer
+        WD.Q128161,     # fashion designer
+    },
 }
+
 
 # RELATIONAL props to follow (relational navigation)
 RELATIONAL_PROPS = [
@@ -756,6 +799,74 @@ class MovieRecommender:
         self.item_similarity_cf = cosine_similarity(item_ratings_matrix)
         print("[Collaborative Filtering] Collaborative filtering model built successfully!")
     
+    def match_and_remove_entities(self, question, filtered, threshold=0.7):
+        question_copy = question
+        matched_entities = []  # Will be list of lists
+        used_token_indices = set()  # Track tokens already matched
+
+        # Prepare candidate labels with their groups of URIs
+        candidates = []
+        seen_labels = set()
+        label_to_uris = {}  # Map label -> list of all URIs in its group
+        for group in filtered:
+            for uri in group:
+                lbl = next(iter(self.kg_handler.graph.objects(uri, RDFS.label)), None)
+                if lbl:
+                    lbl_str = str(lbl)
+                    if lbl_str not in seen_labels:  # Keep unique labels only
+                        seen_labels.add(lbl_str)
+                        word_count = len(lbl_str.split())
+                        candidates.append((lbl_str, word_count))
+                        label_to_uris[lbl_str] = list(group)  # Keep all URIs from the same group
+
+        # Sort candidates by word count descending, then by character length descending
+        candidates.sort(key=lambda x: (x[1], len(x[0])), reverse=True)
+        print(candidates)
+
+        # Tokenize question
+        tokens = []
+        for match in re.finditer(r'\b\w+\b', question_copy):
+            tokens.append((match.group(), match.start(), match.end()))
+        token_texts = [w for w, s, e in tokens]
+
+        for lbl_str, word_count in candidates:
+            best_start = None
+            best_end = None
+            best_token_indices = set()
+
+            # Try full word count and one less if possible
+            for count in [word_count] + ([word_count - 1] if word_count > 1 else []):
+                if count > len(token_texts):
+                    continue
+
+                for i in range(len(token_texts) - count + 1):
+                    window_indices = set(range(i, i+count))
+                    if window_indices & used_token_indices:
+                        continue
+
+                    phrase = " ".join(token_texts[i:i+count])
+                    ratio = difflib.SequenceMatcher(None, lbl_str, phrase.lower()).ratio()
+
+                    if ratio >= threshold:
+                        best_start = tokens[i][1]
+                        best_end = tokens[i+count-1][2]
+                        best_token_indices = window_indices
+                        break
+
+                if best_start is not None:
+                    break  # Don't try smaller window if match found
+
+            if best_start is not None:
+                removed_text = question_copy[best_start:best_end]
+                print(f"[Question Match] Selected: '{lbl_str}' at chars {best_start}-{best_end}, removed text: '{removed_text}'")
+                question_copy = question_copy[:best_start] + question_copy[best_end:]
+                # Append the full group of URIs as a list
+                matched_entities.append(label_to_uris[lbl_str])
+                used_token_indices.update(best_token_indices)
+
+        return question_copy, matched_entities
+
+    
     def get_collaborative_filtering_recommendations(self, item_uris: List[str], top_n: int = 10) -> pd.DataFrame:
         """
         Get movie recommendations using collaborative filtering (item-based).
@@ -1188,7 +1299,7 @@ class MovieRecommender:
                 return response['content']
             else:
                 # LLM failed → simple formatting
-                result = "I couldn’t find direct recommendations, but here are related movies:\n\n"
+                result = "I couldn't find direct recommendations, but here are related movies:\n\n"
                 for m in fallback_movies:
                     result += f"- {m['title']}\n"
                 return result
@@ -1225,9 +1336,11 @@ class MovieRecommender:
         
         # 2(a). find the correct uris for the recommender from embeddings
         candidates = self.resolve_entities(entities)
+        _question_with_no_entities, matched_candidates = self.match_and_remove_entities(message, candidates, threshold=0.7)
+        print(matched_candidates)
         # 2(b). select the correct uris/entites from all possible candidates
-        selected_candidates = self.filter_candidates(candidates)
-        self.print_entities(candidates, selected_candidates)
+        selected_candidates = self.filter_candidates(matched_candidates)
+        self.print_entities(matched_candidates, selected_candidates)
         
         # Flatten selected candidates to get list of URIs
         selected_uris = []

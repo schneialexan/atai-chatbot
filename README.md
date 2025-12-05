@@ -219,12 +219,16 @@ Sophisticated hybrid movie recommendation system that combines two complementary
 
 #### Entity Extraction and Common Traits Inference
 The recommendation pipeline starts with the shared EntityExtractor for entity extraction:
-- **Entity Extraction**: Uses EntityExtractor (with all fallback strategies) to identify movie titles from user queries
+- **Entity Extraction**: Uses EntityExtractor with fuzzy matching enabled to identify entities from user queries. Falls back to brute force extraction if no entities are found.
 - **Entity Resolution**: 
-  1. Maps movie titles to all candidate Wikidata URIs using exact and fuzzy label matching (`resolve_entity_to_candidates`)
+  1. Maps entity labels to all candidate Wikidata URIs using exact and fuzzy label matching (`resolve_entity_to_candidates`)
   2. Returns nested list structure: `[[uri1, uri2], [uri3], ...]` where each inner list contains all candidate URIs for one entity
-  3. Filters candidates to only film entities using film class checking (`filter_candidates`)
-- **Common Traits Inference**: Recursively explores the knowledge graph to find shared properties (directors, genres, actors, themes) across user's liked movies
+  3. **Entity Matching and Removal**: `match_and_remove_entities()` matches entities in the user message using fuzzy string matching (threshold 0.7) and removes matched text to avoid confusion
+- **Candidate Filtering and Splitting**: `filter_and_split_candidates()` processes the matched candidates:
+  1. Categorizes entities by type (film, director, actor, etc.) using type scoring
+  2. Splits candidates into two groups: `film_candidates` (film entities) and `other_candidates` (non-film entities like directors, actors, genres)
+  3. Filters each group to only include entities matching the best category for that group
+- **Common Traits Inference**: Recursively explores the knowledge graph from `film_candidates` to find shared properties (directors, genres, actors, themes) across user's liked movies
 - **Trait Aggregation**: Identifies the most common traits with source tracking and count-based ranking
 
 #### Content-Based Recommendations (TF-IDF with Hybrid Scoring)
@@ -236,8 +240,9 @@ The recommendation pipeline starts with the shared EntityExtractor for entity ex
   3. Cosine similarity matrix is computed between all movies
   4. **Hybrid Scoring**: Boosts recommendations that match common traits identified from user's preferences
   5. Uses trait labels to create weighted query vectors for enhanced similarity matching
-- **Use Case**: Finding movies with similar content, themes, or creative elements
-- **Output**: Movies ranked by content similarity with trait-based boosting
+  6. **Entity-Based Filtering**: If non-film entities (directors, actors, etc.) are found in `other_candidates`, filters TF-IDF recommendations to only include movies that match those entities (e.g., only movies by a mentioned director, or only movies with a mentioned actor)
+- **Use Case**: Finding movies with similar content, themes, or creative elements, optionally constrained by specific directors, actors, or other creative roles
+- **Output**: Movies ranked by content similarity with trait-based boosting, optionally filtered by non-film entities
 
 #### Collaborative Filtering Recommendations
 - **Approach**: Item-based collaborative filtering using user rating patterns
@@ -251,11 +256,11 @@ The recommendation pipeline starts with the shared EntityExtractor for entity ex
 - **Output**: Movies ranked by collaborative similarity scores
 
 #### Knowledge Graph Fallback Recommendations
-- **Trigger**: Executed only when both TF-IDF and collaborative filtering return empty results (e.g., movies missing from metadata or sparse ratings)
-- **Approach**: `get_fallback_movies()` walks MOVIE_PROPS in the KG, collecting other films that connect to the selected URIs through shared cast members, directors, writers, genres, production companies, or home countries
+- **Trigger**: Executed when both TF-IDF and collaborative filtering return empty results AND non-film entities (`other_candidates`) are present (e.g., when user mentions directors or actors but no movies are found in the dataset)
+- **Approach**: `get_fallback_movies()` walks MOVIE_PROPS in the KG, collecting films that connect to the `other_candidates` URIs (non-film entities) through shared cast members, directors, writers, genres, production companies, or home countries
 - **Filtering**: Keeps only entities explicitly typed as films (`wd:Q11424`), de-duplicates by URI, and caps the list (default 10 items) to avoid overwhelming responses
 - **Formatting**: `format_fallback_recommendations()` uses a dedicated prompt when the LLM is available and gracefully falls back to a plain text list if generation fails
-- **Purpose**: Guarantees the user still receives useful, explainable suggestions even if either model cannot score the requested titles
+- **Purpose**: Guarantees the user still receives useful, explainable suggestions when models cannot score the requested titles but non-film entities (directors, actors, etc.) are mentioned
 
 #### Recommendation Formatting
 - **LLM-Powered Formatting**: Uses dedicated prompt to format both recommendation types into natural language
@@ -513,7 +518,9 @@ graph LR
 ### QA Handler Pipeline (qa_handler.py)
 
 ```mermaid
-flowchart LR
+flowchart TB
+  subgraph S1["Entity Extraction"]
+    direction LR
     A["User Question"] --> B["Entity Extraction<br>(EntityExtractor)"]
     B --> C["NER Extraction"] & D["Difficult Entities Pattern Matching"]
     C --> E["Collect Potential Entity-Property Candidates"]
@@ -524,7 +531,13 @@ flowchart LR
     G --> I{"Candidates Found?"}
     I -- No --> J["No Entities Error"]
     I -- Yes --> H
-    H --> K{"Submode?"}
+  end
+
+  S1 --> S2
+
+  subgraph S2["Submode Processing & Answer Generation"]
+    direction LR
+    H2["Best Entity"] --> K{"Submode?"}
     K -- Factual --> L["Factual: Execute SPARQL Query"]
     K -- Embedding --> M["Compute Query Embedding<br>entity + relation"]
     L --> N["Retrieve Answer from KG"]
@@ -532,7 +545,7 @@ flowchart LR
     N --> P["Format Answer with LLM"]
     O --> P
     P --> Q["Natural Language Response"]
-
+  end
     style A fill:#FFE0B2,color:#000000
     style B fill:#FFCC80,color:#000000
     style C fill:#FFCC80,color:#000000
@@ -541,6 +554,7 @@ flowchart LR
     style F fill:#FFAB91,color:#000000
     style G fill:#FFCC80,color:#000000
     style H fill:#A5D6A7,color:#000000
+    style H2 fill:#A5D6A7,color:#000000
     style I fill:#FFAB91,color:#000000
     style J fill:#EF9A9A,color:#000000
     style K fill:#CE93D8,color:#000000
@@ -550,12 +564,16 @@ flowchart LR
     style O fill:#90CAF9,color:#000000
     style P fill:#CE93D8,color:#000000
     style Q fill:#81C784,color:#000000
+    style S1 stroke:#000000,stroke-width:2px
+    style S2 stroke:#000000,stroke-width:2px
 ```
 
 ### LLM Usage in QA Answer Formatting (qa_handler.py - format_answer)
 
 ```mermaid
-graph LR
+flowchart TB
+  subgraph S1["Results Processing & Answer Extraction"]
+    direction LR
     A["SPARQL/Embedding Results<br>(List of Dicts)"] --> B{"Results<br>Error?"}
     B -- Yes --> C["Return Error Message"]
     B -- No --> D["Extract Answers<br>(answerLabel or answerItem)"]
@@ -564,7 +582,13 @@ graph LR
     E -- Yes --> G["Remove Duplicates<br>(Preserve Order)"]
     G --> H["Prepare Raw Data Dict<br>(answers, answers_count,<br>question_entity_metadata)"]
     I["User Question"] --> H
-    H --> J["PromptManager.get_prompt<br>('qa_formatter')"]
+  end
+
+  S1 --> S2
+
+  subgraph S2["LLM Formatting & Response Generation"]
+    direction LR
+    H2["Prepared Data Dict"] --> J["PromptManager.get_prompt<br>('qa_formatter')"]
     J --> K["LLM.generate_response<br>(formatted prompt)"]
     K --> L{"Response<br>Success?"}
     L -- No --> M["Simple Fallback<br>Formatting<br>(Join answers)"]
@@ -574,7 +598,8 @@ graph LR
     P -- Yes --> Q["Get Type from KG<br>(P31 property)"]
     Q --> R["Return: 'Based on my<br>embeddings: ' + content + type"]
     P -- No --> S["Return: 'Based on my<br>embeddings: ' + content"]
-    
+  end
+
     style A fill:#90CAF9,color:#000000
     style B fill:#FFAB91,color:#000000
     style C fill:#EF9A9A,color:#000000
@@ -583,6 +608,7 @@ graph LR
     style F fill:#EF9A9A,color:#000000
     style G fill:#A5D6A7,color:#000000
     style H fill:#A5D6A7,color:#000000
+    style H2 fill:#A5D6A7,color:#000000
     style I fill:#FFE0B2,color:#000000
     style J fill:#CE93D8,color:#000000
     style K fill:#90CAF9,color:#000000
@@ -594,38 +620,60 @@ graph LR
     style Q fill:#90CAF9,color:#000000
     style R fill:#81C784,color:#000000
     style S fill:#81C784,color:#000000
+    style S1 stroke:#000000,stroke-width:2px
+    style S2 stroke:#000000,stroke-width:2px
 ```
 
 ### Recommendation Handler Pipeline (recommender.py)
 
 ```mermaid
-flowchart LR
-    A["User Query"] --> B1["Entity Extraction<br>(EntityExtractor)"]
-    B1 --> B2["Filter to Films<br>(filter_candidates)"]
-    B2 --> C["Infer Common Traits<br>(KG exploration)"]
-    
-    C --> D1["Lookup Movie URIs<br>in Metadata DF"]
-    D1 --> D2["Extract Features<br>(genres, directors,<br>year, types, desc)"]
+flowchart TB
+  subgraph S1["Entity Extraction & Candidate Processing"]
+    direction LR
+    A["User Query"] --> B1["Entity Extraction<br>(EntityExtractor<br>with fuzzy matching)"]
+    B1 --> B2["Resolve Entities<br>to Candidates"]
+    B2 --> B3["Match & Remove<br>Entities from Query"]
+    B3 --> B4["Filter & Split<br>Candidates"]
+    B4 --> B5["film_candidates"] & B6["other_candidates"]
+    B5 --> C["Infer Common Traits<br>(from film_candidates)"]
+  end
+
+  S1 --> S2
+
+  subgraph S2["Recommendation Generation & Formatting"]
+    direction LR
+    C2["Common Traits"]
+    C2 --> D2["Extract Film Features from Metadata DF<br>(genres, directors,<br>year, types, desc)"]
     D2 --> D3["Compute Cosine<br>Similarity"]
-    C --> D4["Build Trait Query<br>Vector"]
+    C2 --> D4["Build Trait Query<br>Vector"]
     D4 --> D5["Trait-Based<br>Score Boosting"]
     D3 --> D5
     D5 --> D["TF-IDF Recommendations"]
-    
-    C --> E["CF Recommendations<br>(Rating Patterns)"]
+    C2 --> E["CF Recommendations<br>(Rating Patterns)"]
     D --> H{"TF-IDF/CF Results?"}
     E --> H
-    H -- Yes --> F["Format with LLM (Prompt: recommendation_formatter)"]
-    H -- No --> I["Fallback to KG Recommendations"]
-    I --> J["Format with LLM (Prompt: fallback_recommendation_formatter)"]
+    H -- Yes --> I{"other_candidates<br>exist?"}
+    H -- No --> J{"other_candidates<br>exist?"}
+    I -- Yes --> K["Filter TF-IDF by<br>other_candidates<br>(directors, actors, etc.)"]
+    I -- No --> F["Format with LLM<br>(recommendation_formatter)"]
+    K --> F
+    J -- Yes --> L["Fallback to KG<br>Recommendations"]
+    J -- No --> M["No Recommendations<br>Error Message"]
+    L --> N["Format with LLM<br>(fallback_recommendation_formatter)"]
     F --> G["Natural Language<br>Response"]
-    J --> G
-    
+    N --> G
+    M --> G
+  end
+
     style A fill:#FFE0B2,color:#000000
     style B1 fill:#FFCC80,color:#000000
     style B2 fill:#FFCC80,color:#000000
+    style B3 fill:#FFCC80,color:#000000
+    style B4 fill:#FFCC80,color:#000000
+    style B5 fill:#A5D6A7,color:#000000
+    style B6 fill:#A5D6A7,color:#000000
     style C fill:#A5D6A7,color:#000000
-    style D1 fill:#90CAF9,color:#000000
+    style C2 fill:#A5D6A7,color:#000000
     style D2 fill:#90CAF9,color:#000000
     style D3 fill:#90CAF9,color:#000000
     style D4 fill:#90CAF9,color:#000000
@@ -633,16 +681,22 @@ flowchart LR
     style D fill:#90CAF9,color:#000000
     style E fill:#90CAF9,color:#000000
     style H fill:#FFAB91,color:#000000
-    style I fill:#90CAF9,color:#000000
-    style J fill:#CE93D8,color:#000000
+    style I fill:#FFAB91,color:#000000
+    style J fill:#FFAB91,color:#000000
+    style K fill:#90CAF9,color:#000000
+    style L fill:#90CAF9,color:#000000
+    style M fill:#EF9A9A,color:#000000
+    style N fill:#CE93D8,color:#000000
     style F fill:#CE93D8,color:#000000
     style G fill:#81C784,color:#000000
+    style S1 stroke:#000000,stroke-width:2px
+    style S2 stroke:#000000,stroke-width:2px
 ```
 
 ### LLM Usage in Normal Recommendations (recommender.py - format_recommendations)
 
 ```mermaid
-graph LR
+flowchart LR
     A["TF-IDF Recommendations<br>(DataFrame)"] --> C["Convert to Structured Dict<br>(title, item_id, similarity_score,<br>genres, directors, year)"]
     B["CF Recommendations<br>(DataFrame)"] --> D["Convert to Structured Dict<br>(title, item_id, cf_similarity_score,<br>genres, directors, year)"]
     E["Common Traits<br>(List)"] --> F["Prepare Structured Data<br>(JSON format)"]
@@ -650,13 +704,16 @@ graph LR
     C --> F
     D --> F
     
-    F --> H["PromptManager.get_prompt<br>('recommendation_formatter')"]
-    H --> I["LLM.generate_response<br>(formatted prompt)"]
-    I --> J{"Response<br>Success?"}
-    J -- Yes --> K{"Response Length<br>< 2000?"}
-    J -- No --> L["Simple Fallback<br>Formatting"]
-    K -- Yes --> M["Natural Language Response<br>(Both recommendation types explained)"]
+    F --> H{"LLM Handler &<br>Prompt Manager<br>Available?"}
+    H -- No --> L["Simple Fallback<br>Formatting<br>(_format_recommendations_simple)"]
+    H -- Yes --> I["PromptManager.get_prompt<br>('recommendation_formatter',<br>user_query, tfidf_recommendations,<br>cf_recommendations, common_traits)"]
+    
+    I --> J["LLM.generate_response<br>(formatted prompt)"]
+    J --> K{"Response<br>Success?"}
     K -- No --> L
+    K -- Yes --> M{"Response Length<br>< 1999 (Speakeasy limit)?"}
+    M -- No --> L
+    M -- Yes --> N["Natural Language Response<br>(Both recommendation types explained)"]
     
     style A fill:#90CAF9,color:#000000
     style B fill:#90CAF9,color:#000000
@@ -665,29 +722,32 @@ graph LR
     style E fill:#A5D6A7,color:#000000
     style G fill:#FFE0B2,color:#000000
     style F fill:#A5D6A7,color:#000000
-    style H fill:#CE93D8,color:#000000
-    style I fill:#90CAF9,color:#000000
-    style J fill:#FFAB91,color:#000000
+    style H fill:#FFAB91,color:#000000
+    style I fill:#CE93D8,color:#000000
+    style J fill:#90CAF9,color:#000000
     style K fill:#FFAB91,color:#000000
+    style M fill:#FFAB91,color:#000000
     style L fill:#FFF9C4,color:#000000
-    style M fill:#81C784,color:#000000
+    style N fill:#81C784,color:#000000
 ```
 
 ### LLM Usage in Fallback Recommendations (recommender.py - format_fallback_recommendations)
 
 ```mermaid
-graph LR
+flowchart LR
     A["Fallback Movies<br>(from KG traversal)"] --> B["Prepare Minimal Structured List<br>(title, item_id)"]
     C["User Query"] --> B
     
-    B --> D{"LLM Handler<br>Available?"}
-    D -- No --> E["Simple Fallback<br>Formatting"]
-    D -- Yes --> F["PromptManager.get_prompt<br>('fallback_recommendation_formatter')"]
+    B --> D{"LLM Handler &<br>Prompt Manager<br>Available?"}
+    D -- No --> E["Simple Fallback<br>Formatting<br>(Plain text list)"]
+    D -- Yes --> F["PromptManager.get_prompt<br>('fallback_recommendation_formatter',<br>user_query, fallback_recommendations)"]
     
     F --> G["LLM.generate_response<br>(formatted prompt)"]
-    G --> H{"Response<br>Success & < 2000?"}
-    H -- Yes --> I["Natural Language Response<br>(KG-based recommendations)"]
+    G --> H{"Response<br>Success?"}
     H -- No --> E
+    H -- Yes --> I{"Response Length<br>< 1999 (Speakeasy limit)?"}
+    I -- No --> E
+    I -- Yes --> J["Natural Language Response<br>(KG-based recommendations)"]
     
     style A fill:#90CAF9,color:#000000
     style C fill:#FFE0B2,color:#000000
@@ -696,19 +756,29 @@ graph LR
     style F fill:#CE93D8,color:#000000
     style G fill:#90CAF9,color:#000000
     style H fill:#FFAB91,color:#000000
+    style I fill:#FFAB91,color:#000000
     style E fill:#FFF9C4,color:#000000
-    style I fill:#81C784,color:#000000
+    style J fill:#81C784,color:#000000
 ```
 
 ### Multimedia Handler Pipeline (multimedia_handler.py)
 
 ```mermaid
-flowchart LR
+flowchart TB
+  subgraph S1["Entity Extraction & Type Detection"]
+    direction LR
     A["User Query"] --> B["Entity Extraction<br>(EntityExtractor)"]
     B --> C["Filter to Films/Persons<br>(is_film or is_person)"]
     C --> D{"Entity Results<br>Found?"}
     D -- No --> E["Error: Entity not found"]
-    D -- Yes --> F["Loop: For Each Entity"]
+    D -- Yes --> E2["Entity Candidates"]
+  end
+
+  S1 --> S2
+
+  subgraph S2["Image Lookup & Retrieval"]
+    direction LR
+    F["Loop: For Each Entity"]
     F --> G["Get IMDb ID from KG<br>(graph.objects P345)"]
     G --> H{"IMDb ID<br>Found?"}
     H -- No --> I["Continue to<br>Next Entity"]
@@ -724,12 +794,14 @@ flowchart LR
     I --> Q{"More Entities<br>to Check?"}
     Q -- Yes --> F
     Q -- No --> R["Return: Apology Message"]
-    
+  end
+
     style A fill:#FFE0B2,color:#000000
     style B fill:#FFCC80,color:#000000
     style C fill:#A5D6A7,color:#000000
     style D fill:#FFAB91,color:#000000
     style E fill:#EF9A9A,color:#000000
+    style E2 fill:#A5D6A7,color:#000000
     style F fill:#90CAF9,color:#000000
     style G fill:#90CAF9,color:#000000
     style H fill:#FFAB91,color:#000000
@@ -743,6 +815,8 @@ flowchart LR
     style P fill:#81C784,color:#000000
     style Q fill:#FFAB91,color:#000000
     style R fill:#EF9A9A,color:#000000
+    style S1 stroke:#000000,stroke-width:2px
+    style S2 stroke:#000000,stroke-width:2px
 ```
 
 ---

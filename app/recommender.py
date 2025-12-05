@@ -1363,7 +1363,7 @@ class MovieRecommender:
 
             response = self.llm_handler.generate_response(prompt)
 
-            if response.get('success') and len(response.get('content', "")) < 2000:
+            if response.get('success') and len(response.get('content', "")) < 1999:
                 return response['content']
             else:
                 # LLM failed → simple formatting

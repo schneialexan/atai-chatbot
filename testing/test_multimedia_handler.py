@@ -29,6 +29,10 @@ class TestMultimediaHandler(unittest.TestCase):
         """Test multimedia questions."""
         test_cases = [
             {
+                "question": "Show me a picture of Meryl Strep",
+                "expected": "image:0288/emAAzyK1rJ6aiMi0wsWYp51EC3h"
+            },
+            {
                 "question": "Show me a picture of Halle Berry.",
                 "expected": "image:0344/9aLI0LSi7cbieyiskOdsBaneKmp"
             },

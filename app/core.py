@@ -151,7 +151,7 @@ class App:
         elif "recommend" in message.lower() or "i like" in message.lower():
             return self._get_recommender().recommend(message)
         # Check if the message is a multimedia question
-        elif "picture" in message.lower() or "image" in message.lower() or "look like" in message.lower() or "show" in message.lower() or "poster" in message.lower():
+        elif "picture" in message.lower() or "image" in message.lower() or "look like" in message.lower() or "poster" in message.lower():
             return self._get_multimedia().get_image(message)
         else:
             print("Using LLM to classify intent")
@@ -162,8 +162,10 @@ class App:
         intent = "unknown"
         if response['success'] and response['json']:
             intent = response['json'].get("intent", "unknown")
+            confidence = response['json'].get("confidence", 0.0)
+            explanation = response['json'].get("explanation", "N/A")
 
-        print(f"Detected intent: {intent}")
+        print(f"Detected intent: {intent} | Confidence: {confidence} | Explanation: {explanation}")
 
         # Route to the appropriate handler
         if intent == "sparql_query":
@@ -187,5 +189,4 @@ class App:
             if low.startswith("select") or low.startswith("prefix") or "where {" in low:
                 print("SPARQL query detected by fallback")
                 return self._get_kg_handler().sparql_query(message)
-            print("Factual question as last resort fallback")
-            return self._get_qa_model().answer(message, submode="factual")
+            return "I'm sorry, I could not determine your intent. Please try again with a more specific question.\n\nI can help you with:\n- factual questions (one-hop questions)\n -recommendation questions\n- nmultimedia questions\n- SPARQL queries."

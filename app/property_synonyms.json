@@ -8,7 +8,7 @@
     "production company": ["produced by", "studio", "production house", "who made"],
     "composer": ["music by", "composed by", "who wrote the music", "soundtrack by", "who composed the music"],
     "author": ["writer", "written by", "who wrote"],
-    "award received": ["awards", "awards won", "accolades", "prizes", "honors", "what awards did"],
+    "award received": ["awards", "awards won", "accolades", "prizes", "honors", "what awards did", "what awards did"],
     "nominated for": ["nominations", "was nominated for", "nominee for"],
     "box office": ["gross", "revenue", "how much did it make", "earnings"],
     "instance of": ["type", "what is it", "category"],
